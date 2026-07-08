@@ -44,3 +44,6 @@ next-env.d.ts
 .code-review-graph/
 
 /src/generated/prisma
+
+# Claude Code personal settings
+.claude/settings.local.json

@@ -1,0 +1,471 @@
+import { ConflictError, NotFoundError } from "@/lib/errors";
+import { assertRole, type Actor } from "@/lib/authz";
+import { JobOrderStatus, Role } from "@/generated/prisma/enums";
+import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
+import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
+import type {
+  IJobOrderRepository,
+  ItemCreateData,
+  ItemUpdateData,
+  JobOrderDetailRecord,
+  JobOrderItemRecord,
+  JobOrderListRecord,
+} from "../repositories/job-order-repository";
+import type {
+  ItemStatusUpdateInput,
+  JobOrderCreateInput,
+  JobOrderDetailDto,
+  JobOrderItemDto,
+  JobOrderItemInput,
+  JobOrderListFilters,
+  JobOrderListPageDto,
+  JobOrderListRowDto,
+  JobOrderUpdateInput,
+} from "../schemas/job-order";
+import {
+  appendHistory,
+  departmentOf,
+  isDoneStatus,
+  isWaitingPickupStatus,
+} from "./production-status";
+
+const WRITER_ROLES = [Role.ADMIN, Role.MANAGER, Role.ENCODER] as const;
+const DELETE_ROLES = [Role.ADMIN, Role.MANAGER] as const;
+
+const DAY_MS = 86_400_000;
+
+const parseDate = (value?: string): Date | null =>
+  value ? new Date(`${value}T00:00:00`) : null;
+const toIso = (d: Date | null): string | null => (d ? d.toISOString() : null);
+const money = (n: number): string => n.toFixed(2);
+
+export class JobOrderService {
+  constructor(
+    private readonly jobOrders: IJobOrderRepository,
+    private readonly customers: ICustomerRepository,
+    private readonly activity: IActivityLogRepository
+  ) {}
+
+  async list(
+    _actor: Actor,
+    filters: JobOrderListFilters
+  ): Promise<JobOrderListPageDto> {
+    const { rows, nextCursor } = await this.jobOrders.listPage(filters);
+    return { rows: rows.map(mapListRow), nextCursor };
+  }
+
+  async get(_actor: Actor, id: string): Promise<JobOrderDetailDto> {
+    const detail = await this.jobOrders.findDetail(id);
+    if (!detail) throw new NotFoundError("Job order not found.");
+    return mapDetail(detail);
+  }
+
+  async create(
+    actor: Actor,
+    input: JobOrderCreateInput
+  ): Promise<{ id: string }> {
+    assertRole(actor, WRITER_ROLES);
+
+    const joNumber = input.joNumber.trim();
+    if (await this.jobOrders.existsJoNumber(joNumber)) {
+      throw new ConflictError(`JO Number "${joNumber}" already exists.`);
+    }
+
+    const items = buildItems(joNumber, input.items, 0);
+    const header = deriveHeader(items);
+
+    return this.jobOrders.withTransaction(async (tx) => {
+      const customer = await this.customers.findOrCreateByName(
+        input.customerName,
+        actor.id,
+        tx
+      );
+      const created = await this.jobOrders.createWithItems(
+        {
+          joNumber,
+          customerId: customer.id,
+          // Matches legacy JOWebApp semantics: a submitted JO is already in
+          // production. DRAFT/PENDING_REVIEW are reserved for the future
+          // quotation-fed approval gate.
+          status: JobOrderStatus.IN_PROGRESS,
+          deadline: header.deadline,
+          planDateStart: parseDate(input.planDateStart),
+          planDateEnd: parseDate(input.planDateEnd),
+          isLFP: header.isLFP,
+          subtotal: header.total,
+          total: header.total,
+          notes: input.notes || null,
+          createdById: actor.id,
+          items,
+        },
+        tx
+      );
+      await this.jobOrders.addJoStatusHistory(
+        {
+          jobOrderId: created.id,
+          fromStatus: null,
+          toStatus: JobOrderStatus.IN_PROGRESS,
+          changedById: actor.id,
+        },
+        tx
+      );
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: created.id,
+          action: "create",
+          payload: { joNumber, items: items.length },
+        },
+        tx
+      );
+      return { id: created.id };
+    });
+  }
+
+  async update(actor: Actor, input: JobOrderUpdateInput): Promise<void> {
+    assertRole(actor, WRITER_ROLES);
+
+    const detail = await this.jobOrders.findDetail(input.id);
+    if (!detail) throw new NotFoundError("Job order not found.");
+
+    const existingIds = new Set(detail.items.map((i) => i.id));
+    const keptIds = new Set(
+      input.items.map((i) => i.id).filter((id): id is string => !!id)
+    );
+    const deleteIds = [...existingIds].filter((id) => !keptIds.has(id));
+
+    const toUpdate: { id: string; data: ItemUpdateData }[] = [];
+    const toCreate: ItemCreateData[] = [];
+    input.items.forEach((item, index) => {
+      if (item.id && existingIds.has(item.id)) {
+        toUpdate.push({ id: item.id, data: buildItem(detail.joNumber, item, index) });
+      } else {
+        toCreate.push(buildItem(detail.joNumber, item, index));
+      }
+    });
+
+    const all = buildItems(detail.joNumber, input.items, 0);
+    const header = deriveHeader(all);
+
+    await this.jobOrders.withTransaction(async (tx) => {
+      const customer = await this.customers.findOrCreateByName(
+        input.customerName,
+        actor.id,
+        tx
+      );
+      await this.jobOrders.updateHeader(
+        input.id,
+        {
+          customerId: customer.id,
+          deadline: header.deadline,
+          planDateStart: parseDate(input.planDateStart),
+          planDateEnd: parseDate(input.planDateEnd),
+          isLFP: header.isLFP,
+          subtotal: header.total,
+          total: header.total,
+          notes: input.notes || null,
+        },
+        tx
+      );
+      await this.jobOrders.replaceItems(
+        input.id,
+        { create: toCreate, update: toUpdate, deleteIds },
+        tx
+      );
+      await this.syncJoStatus(actor, input.id, detail.status, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: input.id,
+          action: "update",
+          payload: {
+            joNumber: detail.joNumber,
+            created: toCreate.length,
+            updated: toUpdate.length,
+            deleted: deleteIds.length,
+          },
+        },
+        tx
+      );
+    });
+  }
+
+  async updateItemStatus(
+    actor: Actor,
+    input: ItemStatusUpdateInput
+  ): Promise<void> {
+    assertRole(actor, WRITER_ROLES);
+
+    const detail = await this.jobOrders.findDetail(input.jobOrderId);
+    if (!detail) throw new NotFoundError("Job order not found.");
+    const item = detail.items.find((i) => i.id === input.itemId);
+    if (!item) throw new NotFoundError("Job order item not found.");
+
+    const status = input.productionStatus;
+    const now = new Date();
+
+    // Waiting-pickup timestamp: stamp on entry, keep while waiting, clear on
+    // exit — exactly like legacy updateJORow.
+    const wasWaiting = isWaitingPickupStatus(item.productionStatus);
+    const nowWaiting = isWaitingPickupStatus(status);
+    let waitingPickupSince = item.waitingPickupSince;
+    if (nowWaiting && !wasWaiting) waitingPickupSince = now;
+    else if (!nowWaiting) waitingPickupSince = null;
+
+    const done = isDoneStatus(status);
+    const historyEntry = input.remark ? `${status} — ${input.remark}` : status;
+
+    await this.jobOrders.withTransaction(async (tx) => {
+      await this.jobOrders.updateItemProduction(
+        input.itemId,
+        {
+          productionStatus: status,
+          department: departmentOf(status),
+          statusHistory: appendHistory(item.statusHistory, historyEntry),
+          waitingPickupSince,
+          // Done items auto-archive (legacy behavior); reverting a done
+          // status un-archives so the item shows on the board again.
+          archivedAt: done ? (item.archivedAt ?? now) : null,
+          actualDate: done ? (item.actualDate ?? now) : item.actualDate,
+        },
+        tx
+      );
+      await this.syncJoStatus(actor, input.jobOrderId, detail.status, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrderItem",
+          entityId: input.itemId,
+          action: "status",
+          payload: {
+            joNumber: detail.joNumber,
+            from: item.productionStatus,
+            to: status,
+            remark: input.remark ?? null,
+          },
+        },
+        tx
+      );
+    });
+  }
+
+  async softDelete(actor: Actor, id: string): Promise<void> {
+    assertRole(actor, DELETE_ROLES);
+    const detail = await this.jobOrders.findDetail(id);
+    if (!detail) throw new NotFoundError("Job order not found.");
+
+    await this.jobOrders.withTransaction(async (tx) => {
+      await this.jobOrders.softDelete(id, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: id,
+          action: "delete",
+          payload: { joNumber: detail.joNumber },
+        },
+        tx
+      );
+    });
+  }
+
+  /** All items archived → JO COMPLETED; anything reopened → IN_PROGRESS. */
+  private async syncJoStatus(
+    actor: Actor,
+    jobOrderId: string,
+    currentStatus: JobOrderStatus,
+    tx: Parameters<IJobOrderRepository["getItemsProduction"]>[1]
+  ): Promise<void> {
+    const items = await this.jobOrders.getItemsProduction(jobOrderId, tx);
+    const allDone =
+      items.length > 0 && items.every((i) => i.archivedAt !== null);
+
+    const next = allDone
+      ? JobOrderStatus.COMPLETED
+      : currentStatus === JobOrderStatus.COMPLETED
+        ? JobOrderStatus.IN_PROGRESS
+        : currentStatus;
+
+    if (next !== currentStatus) {
+      await this.jobOrders.setJoStatus(
+        jobOrderId,
+        next,
+        next === JobOrderStatus.COMPLETED ? new Date() : null,
+        tx
+      );
+      await this.jobOrders.addJoStatusHistory(
+        {
+          jobOrderId,
+          fromStatus: currentStatus,
+          toStatus: next,
+          changedById: actor.id,
+        },
+        tx
+      );
+    }
+  }
+}
+
+// ——— input → persistence payloads ———
+
+function buildItem(
+  joNumber: string,
+  item: JobOrderItemInput,
+  index: number
+): ItemCreateData {
+  const qty = parseInt(item.qty, 10);
+  const amount = parseFloat(item.amount);
+  return {
+    description: item.description,
+    qty,
+    unitPrice: money(amount / qty),
+    lineTotal: money(amount),
+    deadline: parseDate(item.deadline),
+    productionStatus: item.productionStatus || null,
+    department: departmentOf(item.productionStatus),
+    assignedTo: item.assignedTo || null,
+    category: item.category || null,
+    isLFP: item.isLFP,
+    lfpWidth: item.isLFP ? item.lfpWidth || null : null,
+    lfpHeight: item.isLFP ? item.lfpHeight || null : null,
+    lfpUnit: item.isLFP ? item.lfpUnit || "ft" : null,
+    isRush: item.isRush,
+    lineItemId: `${joNumber}-${String(index + 1).padStart(2, "0")}`,
+    sortOrder: index,
+  };
+}
+
+function buildItems(
+  joNumber: string,
+  items: JobOrderItemInput[],
+  startIndex: number
+): ItemCreateData[] {
+  return items.map((item, i) => {
+    const data = buildItem(joNumber, item, startIndex + i);
+    if (data.productionStatus) {
+      data.statusHistory = appendHistory(null, data.productionStatus);
+      data.waitingPickupSince = isWaitingPickupStatus(data.productionStatus)
+        ? new Date()
+        : null;
+    }
+    return data;
+  });
+}
+
+function deriveHeader(items: ItemCreateData[]): {
+  deadline: Date | null;
+  isLFP: boolean;
+  total: string;
+} {
+  const deadlines = items
+    .map((i) => i.deadline)
+    .filter((d): d is Date => d !== null && d !== undefined);
+  const total = items.reduce((sum, i) => sum + parseFloat(i.lineTotal), 0);
+  return {
+    deadline: deadlines.length
+      ? new Date(Math.min(...deadlines.map((d) => d.getTime())))
+      : null,
+    isLFP: items.some((i) => i.isLFP),
+    total: money(total),
+  };
+}
+
+// ——— record → DTO mapping (Decimal/Date never leave the server raw) ———
+
+function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
+  const now = Date.now();
+  const done = item.archivedAt !== null || isDoneStatus(item.productionStatus);
+  const waiting =
+    !done && isWaitingPickupStatus(item.productionStatus);
+  const overdue =
+    !done &&
+    !waiting &&
+    item.deadline !== null &&
+    item.deadline.getTime() < now;
+
+  return {
+    id: item.id,
+    description: item.description,
+    qty: item.qty,
+    lineTotal: item.lineTotal.toString(),
+    productionStatus: item.productionStatus,
+    department: item.department,
+    deadline: toIso(item.deadline),
+    daysLeft: item.deadline
+      ? Math.ceil((item.deadline.getTime() - now) / DAY_MS)
+      : null,
+    actualDate: toIso(item.actualDate),
+    assignedTo: item.assignedTo,
+    category: item.category,
+    isLFP: item.isLFP,
+    lfpWidth: item.lfpWidth,
+    lfpHeight: item.lfpHeight,
+    lfpUnit: item.lfpUnit,
+    isRush: item.isRush,
+    statusHistory: item.statusHistory,
+    waitingPickupSince: toIso(item.waitingPickupSince),
+    archivedAt: toIso(item.archivedAt),
+    lineItemId: item.lineItemId,
+    isDone: done,
+    isWaitingPickup: waiting,
+    isOverdue: overdue,
+  };
+}
+
+function mapListRow(row: JobOrderListRecord): JobOrderListRowDto {
+  const now = Date.now();
+  const open = row.items.filter(
+    (i) => i.archivedAt === null && !isDoneStatus(i.productionStatus)
+  );
+  const openDeadlines = open
+    .map((i) => i.deadline)
+    .filter((d): d is Date => d !== null);
+  const deadline = openDeadlines.length
+    ? new Date(Math.min(...openDeadlines.map((d) => d.getTime())))
+    : row.deadline;
+
+  return {
+    id: row.id,
+    joNumber: row.joNumber,
+    customerName: row.customer.name,
+    status: row.status,
+    total: row.total.toString(),
+    itemCount: row.items.length,
+    openItemCount: open.length,
+    deadline: toIso(deadline),
+    isRush: open.some((i) => i.isRush),
+    hasWaitingPickup: row.items.some(
+      (i) => i.waitingPickupSince !== null && i.archivedAt === null
+    ),
+    isOverdue: open.some(
+      (i) =>
+        i.deadline !== null &&
+        i.deadline.getTime() < now &&
+        !isWaitingPickupStatus(i.productionStatus)
+    ),
+    createdAt: row.createdAt.toISOString(),
+    imported: row.importedAt !== null,
+  };
+}
+
+function mapDetail(detail: JobOrderDetailRecord): JobOrderDetailDto {
+  return {
+    id: detail.id,
+    joNumber: detail.joNumber,
+    status: detail.status,
+    customer: detail.customer,
+    notes: detail.notes,
+    planDateStart: toIso(detail.planDateStart),
+    planDateEnd: toIso(detail.planDateEnd),
+    deadline: toIso(detail.deadline),
+    total: detail.total.toString(),
+    isLFP: detail.isLFP,
+    imported: detail.importedAt !== null,
+    createdAt: detail.createdAt.toISOString(),
+    createdByName: detail.createdBy.name,
+    completedAt: toIso(detail.completedAt),
+    items: detail.items.map(mapItem),
+  };
+}

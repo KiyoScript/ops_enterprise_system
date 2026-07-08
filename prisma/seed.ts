@@ -17,6 +17,18 @@ const users: { name: string; email: string; role: Role; password: string }[] = [
   { name: "Viewer", email: "viewer@ops.local", role: Role.VIEWER, password: "Viewer123!" },
 ];
 
+// Default JO production statuses (legacy StatusDatabase "Status Department").
+// Maintainable afterwards under Maintenance → Job Orders.
+const joStatuses = [
+  "For Layout - Graphics",
+  "For Approval - Graphics",
+  "Ongoing - Printing",
+  "Ongoing - Production",
+  "On Hold - Production",
+  "Waiting - For Pick up / Delivery",
+  "Done - Completed",
+];
+
 async function main() {
   for (const u of users) {
     await prisma.user.upsert({
@@ -32,6 +44,23 @@ async function main() {
     });
   }
   console.log(`Seeded ${users.length} users.`);
+
+  const admin = await prisma.user.findUniqueOrThrow({
+    where: { email: "admin@ops.local" },
+  });
+  for (const [index, label] of joStatuses.entries()) {
+    await prisma.lookupOption.upsert({
+      where: { type_label: { type: "JO_STATUS", label } },
+      update: {},
+      create: {
+        type: "JO_STATUS",
+        label,
+        sortOrder: index,
+        createdById: admin.id,
+      },
+    });
+  }
+  console.log(`Seeded ${joStatuses.length} JO statuses.`);
 }
 
 main()

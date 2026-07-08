@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Truck,
   Users,
+  Wrench,
 } from "lucide-react";
 import {
   Sidebar,
@@ -62,6 +63,14 @@ const navGroups = [
     items: [
       { title: "Customers", href: "/customers", icon: Users },
       { title: "Products", href: "/products", icon: Package },
+    ],
+  },
+  {
+    label: "Maintenance",
+    items: [
+      { title: "Job Orders", href: "/maintenance/job-orders", icon: Wrench },
+      { title: "Quotations", href: "/maintenance/quotations", icon: Wrench },
+      { title: "Sales Audit", href: "/maintenance/sales-audit", icon: Wrench },
     ],
   },
   {
