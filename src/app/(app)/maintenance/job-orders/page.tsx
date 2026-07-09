@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/authz";
+import { defineAbilityFor } from "@/lib/ability";
 import { getLookupService } from "@/modules/shared/services/lookup-service";
 import { getEmployeeService } from "@/modules/shared/services/employee-service";
 import { PageHeader } from "@/components/page-header";
@@ -11,7 +12,7 @@ export const metadata: Metadata = { title: "JO Maintenance" };
 
 export default async function JoMaintenancePage() {
   const actor = await requireActor();
-  if (actor.role !== "ADMIN" && actor.role !== "MANAGER") {
+  if (defineAbilityFor(actor).cannot("maintain", "Maintenance")) {
     redirect("/job-orders");
   }
 

@@ -1,6 +1,6 @@
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
-import { assertRole, type Actor } from "@/lib/authz";
-import { Role } from "@/generated/prisma/enums";
+import { type Actor } from "@/lib/authz";
+import { assertCan } from "@/lib/ability";
 import type {
   EmployeeCreateData,
   IEmployeeRepository,
@@ -14,8 +14,6 @@ import type {
   EmployeeImportSummaryDto,
   EmployeeUpdateInput,
 } from "../schemas/employee";
-
-const MAINTAINER_ROLES = [Role.ADMIN, Role.MANAGER] as const;
 
 // Legacy EMPDATABASE sheet columns.
 const COL = { code: 0, team: 1, name: 2, email: 3 } as const;
@@ -31,7 +29,7 @@ export class EmployeeService {
   }
 
   async create(actor: Actor, input: EmployeeCreateInput): Promise<EmployeeDto> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
     if (await this.employees.existsCode(input.code)) {
       throw new ConflictError(`Employee code "${input.code}" already exists.`);
     }
@@ -53,7 +51,7 @@ export class EmployeeService {
   }
 
   async update(actor: Actor, input: EmployeeUpdateInput): Promise<void> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
     const existing = await this.employees.findById(input.id);
     if (!existing) throw new NotFoundError("Employee not found.");
     if (
@@ -79,7 +77,7 @@ export class EmployeeService {
   }
 
   async remove(actor: Actor, id: string): Promise<void> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
     const existing = await this.employees.findById(id);
     if (!existing) throw new NotFoundError("Employee not found.");
     // JO items store the employee CODE as plain text, so history survives.
@@ -100,7 +98,7 @@ export class EmployeeService {
     actor: Actor,
     rows: string[][]
   ): Promise<EmployeeImportSummaryDto> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
 
     const summary: EmployeeImportSummaryDto = {
       created: 0,

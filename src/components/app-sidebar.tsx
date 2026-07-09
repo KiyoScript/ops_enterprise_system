@@ -41,12 +41,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { signOutAction } from "@/lib/auth-actions";
+import {
+  defineAbilityFor,
+  type AppAction,
+  type AppSubject,
+} from "@/lib/ability";
+import type { Role } from "@/generated/prisma/enums";
 
 type NavItem = {
   title: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  adminOnly?: boolean;
+  /** Only shown when the user's ability allows this action/subject. */
+  requires?: [AppAction, AppSubject];
 };
 
 const navGroups: { label: string; items: NavItem[] }[] = [
@@ -67,7 +74,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { title: "Job Orders", href: "/job-orders", icon: ClipboardList },
       { title: "JO Calendar", href: "/job-orders/calendar", icon: CalendarDays },
       // Legacy rule: the archive is admin-only
-      { title: "Archive JOs", href: "/job-orders/archive", icon: Archive, adminOnly: true },
+      { title: "Archive JOs", href: "/job-orders/archive", icon: Archive, requires: ["read", "Archive"] },
       { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck },
     ],
   },
@@ -100,6 +107,7 @@ type SidebarUser = {
 
 export function AppSidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
+  const ability = defineAbilityFor({ role: (user.role ?? "VIEWER") as Role });
 
   // Highlight only the most specific match (e.g. /job-orders/calendar must
   // not also light up /job-orders).
@@ -145,7 +153,7 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items
-                  .filter((item) => !item.adminOnly || user.role === "ADMIN")
+                  .filter((item) => !item.requires || ability.can(...item.requires))
                   .map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton

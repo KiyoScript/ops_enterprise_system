@@ -1,6 +1,7 @@
 import { ValidationError } from "@/lib/errors";
-import { assertRole, type Actor } from "@/lib/authz";
-import { JobOrderStatus, Role } from "@/generated/prisma/enums";
+import { type Actor } from "@/lib/authz";
+import { assertCan } from "@/lib/ability";
+import { JobOrderStatus } from "@/generated/prisma/enums";
 import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type {
@@ -14,8 +15,6 @@ import {
   isDoneStatus,
   isWaitingPickupStatus,
 } from "./production-status";
-
-const IMPORT_ROLES = [Role.ADMIN, Role.MANAGER] as const;
 
 // Legacy "Line-up JOs" / "Archive Line-up JOs" sheet columns (A–T). On the
 // archive sheet col R is "Date Archive" instead of "Waiting Pickup Since".
@@ -80,7 +79,7 @@ export class LegacyImportService {
     rows: string[][],
     source: ImportSource
   ): Promise<ImportSummaryDto> {
-    assertRole(actor, IMPORT_ROLES);
+    assertCan(actor, "import", "JobOrder");
 
     const summary: ImportSummaryDto = {
       jobOrdersCreated: 0,

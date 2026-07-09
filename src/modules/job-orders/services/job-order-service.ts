@@ -1,7 +1,8 @@
 import { format } from "date-fns";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
-import { assertRole, type Actor } from "@/lib/authz";
-import { JobOrderStatus, Role } from "@/generated/prisma/enums";
+import { type Actor } from "@/lib/authz";
+import { assertCan } from "@/lib/ability";
+import { JobOrderStatus } from "@/generated/prisma/enums";
 import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type { DbTx } from "@/modules/shared/repositories/types";
@@ -38,9 +39,6 @@ import {
   isDoneStatus,
   isWaitingPickupStatus,
 } from "./production-status";
-
-const WRITER_ROLES = [Role.ADMIN, Role.MANAGER, Role.ENCODER] as const;
-const DELETE_ROLES = [Role.ADMIN, Role.MANAGER] as const;
 
 const DAY_MS = 86_400_000;
 
@@ -126,7 +124,7 @@ export class JobOrderService {
     actor: Actor,
     input: MoveDeadlineInput
   ): Promise<{ itemsMoved: number }> {
-    assertRole(actor, DELETE_ROLES); // ADMIN/MANAGER ≈ legacy Admin/Production Planner
+    assertCan(actor, "move-deadline", "JobOrder"); // legacy: Admin + Production Planner
 
     const detail = await this.jobOrders.findDetail(input.jobOrderId);
     if (!detail) throw new NotFoundError("Job order not found.");
@@ -201,7 +199,7 @@ export class JobOrderService {
   /** Legacy updateJORow: edit an item's fields and (optionally) its status
    *  in one save — history merge, waiting stamp, done auto-archive included. */
   async updateItem(actor: Actor, input: ItemEditInput): Promise<void> {
-    assertRole(actor, WRITER_ROLES);
+    assertCan(actor, "update", "JobOrderItem");
 
     const detail = await this.jobOrders.findDetail(input.jobOrderId);
     if (!detail) throw new NotFoundError("Job order not found.");
@@ -282,7 +280,7 @@ export class JobOrderService {
     actor: Actor,
     input: JobOrderCreateInput
   ): Promise<{ id: string }> {
-    assertRole(actor, WRITER_ROLES);
+    assertCan(actor, "create", "JobOrder");
 
     // PO and non-JO numbers are typed by the user; a plain JO gets an
     // auto-generated "R-AD{yyyy}-{MM}-{dd}-{seq}" (fusion-only behavior).
@@ -385,7 +383,7 @@ export class JobOrderService {
   }
 
   async update(actor: Actor, input: JobOrderUpdateInput): Promise<void> {
-    assertRole(actor, WRITER_ROLES);
+    assertCan(actor, "update", "JobOrder");
 
     const detail = await this.jobOrders.findDetail(input.id);
     if (!detail) throw new NotFoundError("Job order not found.");
@@ -471,7 +469,7 @@ export class JobOrderService {
     actor: Actor,
     input: ItemStatusUpdateInput
   ): Promise<void> {
-    assertRole(actor, WRITER_ROLES);
+    assertCan(actor, "update", "JobOrderItem");
 
     const detail = await this.jobOrders.findDetail(input.jobOrderId);
     if (!detail) throw new NotFoundError("Job order not found.");
@@ -529,7 +527,7 @@ export class JobOrderService {
   /** Soft removal: archives every open item and cancels the JO — nothing is
    *  hard-deleted, and the items stay browsable on the Archive page. */
   async archiveJo(actor: Actor, id: string): Promise<void> {
-    assertRole(actor, DELETE_ROLES);
+    assertCan(actor, "archive", "JobOrder");
     const detail = await this.jobOrders.findDetail(id);
     if (!detail) throw new NotFoundError("Job order not found.");
 
@@ -566,7 +564,7 @@ export class JobOrderService {
 
   /** Legacy ARCHIVE_VIEW audit entry — the archive page is admin-only. */
   async logArchiveView(actor: Actor): Promise<void> {
-    assertRole(actor, [Role.ADMIN]);
+    assertCan(actor, "read", "Archive");
     await this.activity.log({
       userId: actor.id,
       entityType: "JobOrder",

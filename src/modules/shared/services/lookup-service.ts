@@ -1,6 +1,6 @@
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
-import { assertRole, type Actor } from "@/lib/authz";
-import { Role } from "@/generated/prisma/enums";
+import { type Actor } from "@/lib/authz";
+import { assertCan } from "@/lib/ability";
 import type {
   ILookupRepository,
   LookupRecord,
@@ -18,10 +18,6 @@ import type {
   LookupUpdateInput,
 } from "../schemas/lookup";
 
-// Maintenance lists are configuration: only ADMIN/MANAGER maintain them,
-// everyone signed in may read them (they feed pickers).
-const MAINTAINER_ROLES = [Role.ADMIN, Role.MANAGER] as const;
-
 export class LookupService {
   constructor(
     private readonly lookups: ILookupRepository,
@@ -38,7 +34,7 @@ export class LookupService {
   }
 
   async create(actor: Actor, input: LookupCreateInput): Promise<LookupDto> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
     if (await this.lookups.existsLabel(input.type, input.label)) {
       throw new ConflictError(`"${input.label}" is already on the list.`);
     }
@@ -60,7 +56,7 @@ export class LookupService {
   }
 
   async update(actor: Actor, input: LookupUpdateInput): Promise<void> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
     const existing = await this.lookups.findById(input.id);
     if (!existing) throw new NotFoundError("Maintenance entry not found.");
     if (
@@ -95,7 +91,7 @@ export class LookupService {
     actor: Actor,
     rows: string[][]
   ): Promise<LookupImportSummaryDto> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
 
     const summary: LookupImportSummaryDto = {
       created: 0,
@@ -169,7 +165,7 @@ export class LookupService {
   }
 
   async remove(actor: Actor, id: string): Promise<void> {
-    assertRole(actor, MAINTAINER_ROLES);
+    assertCan(actor, "maintain", "Maintenance");
     const existing = await this.lookups.findById(id);
     if (!existing) throw new NotFoundError("Maintenance entry not found.");
     // Hard delete is fine: items keep the label as plain text, so history

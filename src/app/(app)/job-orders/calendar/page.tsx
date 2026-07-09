@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
+import { requireActor } from "@/lib/authz";
+import { defineAbilityFor } from "@/lib/ability";
 import { PageHeader } from "@/components/page-header";
 import { JoCalendar } from "@/modules/job-orders/components/jo-calendar";
 
 export const metadata: Metadata = { title: "JO Calendar" };
 
 export default async function JoCalendarPage() {
-  const session = await auth();
-  const role = session?.user?.role;
+  const ability = defineAbilityFor(await requireActor());
   // Legacy rule: Admin + Production Planner may drag deadlines.
-  const canMove = role === "ADMIN" || role === "MANAGER";
+  const canMove = ability.can("move-deadline", "JobOrder");
 
   return (
     <>

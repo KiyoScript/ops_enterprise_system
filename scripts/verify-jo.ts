@@ -13,6 +13,7 @@ import {
   jobOrderEditFormInput,
 } from "../src/modules/job-orders/schemas/job-order";
 import type { Actor } from "../src/lib/authz";
+import { defineAbilityFor } from "../src/lib/ability";
 
 const dateStr = (offsetDays: number) => {
   const d = new Date(Date.now() + offsetDays * 86_400_000);
@@ -468,6 +469,39 @@ async function main() {
     where: { action: { in: ["create", "update", "status", "archive", "import"] } },
   });
   check("activity log rows written", logs > 0, logs);
+
+  console.log("6) CASL ability matrix (unified fusion roles — JO module)");
+  const abilityOf = (role: Actor["role"]) => defineAbilityFor({ role });
+  check(
+    "ADMIN can do everything (archive, archive page, maintain, import)",
+    abilityOf("ADMIN").can("archive", "JobOrder") &&
+      abilityOf("ADMIN").can("read", "Archive") &&
+      abilityOf("ADMIN").can("maintain", "Maintenance") &&
+      abilityOf("ADMIN").can("import", "JobOrder")
+  );
+  check(
+    "MANAGER: import/archive/maintain/move-deadline, but NOT the archive page",
+    abilityOf("MANAGER").can("import", "JobOrder") &&
+      abilityOf("MANAGER").can("archive", "JobOrder") &&
+      abilityOf("MANAGER").can("move-deadline", "JobOrder") &&
+      abilityOf("MANAGER").can("maintain", "Maintenance") &&
+      abilityOf("MANAGER").cannot("read", "Archive")
+  );
+  check(
+    "ENCODER: create/update only",
+    abilityOf("ENCODER").can("create", "JobOrder") &&
+      abilityOf("ENCODER").can("update", "JobOrderItem") &&
+      abilityOf("ENCODER").cannot("import", "JobOrder") &&
+      abilityOf("ENCODER").cannot("archive", "JobOrder") &&
+      abilityOf("ENCODER").cannot("maintain", "Maintenance")
+  );
+  check(
+    "AUDITOR/VIEWER: read-only",
+    abilityOf("AUDITOR").can("read", "JobOrder") &&
+      abilityOf("AUDITOR").cannot("update", "JobOrderItem") &&
+      abilityOf("VIEWER").can("read", "JobOrderItem") &&
+      abilityOf("VIEWER").cannot("create", "JobOrder")
+  );
 
   await cleanup();
   console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
