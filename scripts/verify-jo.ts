@@ -155,6 +155,31 @@ async function main() {
   const smView = await jos.list(actor, { q: "VERIFY", view: "smOverdue", take: 25 });
   check("smOverdue view lists VERIFY-SM-1 only", smView.rows.length === 1 && smView.rows[0]!.joNumber === "VERIFY-SM-1", smView.rows.map(r => r.joNumber));
 
+  console.log("4b2) Calendar (legacy getJODeadlinesForMonth + deadline move)");
+  const now = new Date();
+  const cal = await jos.listCalendar(actor, now.getFullYear(), now.getMonth() + 1);
+  const calNums = cal.map((r) => r.joNumber);
+  check("SM/CA pins on this month's calendar", calNums.includes("VERIFY-SM-1") && calNums.includes("VERIFY-CA-1"), calNums.filter((n) => n.startsWith("VERIFY")));
+  check("waiting-pickup item excluded from calendar", !cal.some((r) => r.lineItemId === "VERIFY-001-02"));
+  check("archived item excluded from calendar", !calNums.includes("VERIFY-002"));
+
+  const sm1 = await jos.list(actor, { q: "VERIFY-SM-1", view: "all", take: 5 });
+  const sm1Id = sm1.rows[0]!.id;
+  const moved = await jos.moveJoDeadline(actor, { jobOrderId: sm1Id, newDate: dateStr(6) });
+  check("deadline move updates all open items", moved.itemsMoved === 1, moved);
+  const sm1After = await jos.get(actor, sm1Id);
+  check("JO header deadline moved", sm1After.deadline?.slice(0, 10) === dateStr(6), sm1After.deadline);
+  let noop = "";
+  try { await jos.moveJoDeadline(actor, { jobOrderId: sm1Id, newDate: dateStr(6) }); } catch (e) { noop = (e as Error).constructor.name; }
+  check("no-op move rejected (legacy 'already' guard)", noop === "ValidationError", noop);
+  let calForb = "";
+  try { await jos.moveJoDeadline(viewer, { jobOrderId: sm1Id, newDate: dateStr(7) }); } catch (e) { calForb = (e as Error).constructor.name; }
+  check("VIEWER cannot move deadlines", calForb === "ForbiddenError", calForb);
+  const moveLog = await prisma.activityLog.findFirst({ where: { action: "deadline-moved", entityId: sm1Id } });
+  check("deadline move audit-logged", !!moveLog);
+  // put it back so the metrics deltas in later runs stay deterministic
+  await jos.moveJoDeadline(actor, { jobOrderId: sm1Id, newDate: dateStr(-1) });
+
   console.log("4c) Validation parity (legacy submitNewJO)");
   const noDeadline = {
     joNumber: "VERIFY-VAL-1",

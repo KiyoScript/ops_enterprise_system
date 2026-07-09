@@ -9,6 +9,7 @@ import {
   itemStatusUpdateInput,
   jobOrderCreateInput,
   jobOrderUpdateInput,
+  moveDeadlineInput,
 } from "@/modules/job-orders/schemas/job-order";
 import { z } from "zod";
 
@@ -77,6 +78,22 @@ export async function updateItemAction(
     await getJobOrderService().updateItem(actor, parsed.data);
     revalidatePath("/job-orders");
     return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function moveJoDeadlineAction(
+  input: unknown
+): Promise<ActionResult<{ itemsMoved: number }>> {
+  try {
+    const actor = await requireActor();
+    const parsed = moveDeadlineInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+
+    const result = await getJobOrderService().moveJoDeadline(actor, parsed.data);
+    revalidatePath("/job-orders");
+    return ok(result);
   } catch (err) {
     return fail(err);
   }

@@ -262,6 +262,11 @@ export interface IJobOrderRepository {
     data: ItemUpdateData & Partial<ItemProductionUpdateData>,
     tx?: DbTx
   ): Promise<void>;
+  /** Active-board items with a deadline inside [start, end) — calendar pins.
+   *  Waiting-pickup items are excluded (legacy: production is finished). */
+  listCalendarItems(start: Date, end: Date): Promise<JobOrderItemBoardRecord[]>;
+  /** Moves the deadline of every OPEN item of the JO + the JO header. */
+  moveJoDeadline(jobOrderId: string, newDate: Date, tx?: DbTx): Promise<number>;
   findDetail(id: string): Promise<JobOrderDetailRecord | null>;
   existsJoNumber(joNumber: string, excludeId?: string): Promise<boolean>;
   /** Returns the subset of joNumbers already in the DB (case-insensitive). */
@@ -479,6 +484,43 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     tx?: DbTx
   ): Promise<void> {
     await (tx ?? prisma).jobOrderItem.update({ where: { id: itemId }, data });
+  }
+
+  async listCalendarItems(
+    start: Date,
+    end: Date
+  ): Promise<JobOrderItemBoardRecord[]> {
+    return prisma.jobOrderItem.findMany({
+      where: {
+        archivedAt: null,
+        deadline: { gte: start, lt: end },
+        // Legacy getJODeadlinesForMonth skips waiting-pickup items.
+        NOT: containsAny(PICKUP_EXCLUDE_KEYWORDS),
+        jobOrder: {
+          deletedAt: null,
+          status: { not: JobOrderStatus.CANCELLED },
+        },
+      },
+      include: itemBoardInclude,
+      orderBy: [{ deadline: "asc" }, { id: "asc" }],
+    });
+  }
+
+  async moveJoDeadline(
+    jobOrderId: string,
+    newDate: Date,
+    tx?: DbTx
+  ): Promise<number> {
+    const db = tx ?? prisma;
+    const result = await db.jobOrderItem.updateMany({
+      where: { jobOrderId, archivedAt: null },
+      data: { deadline: newDate },
+    });
+    await db.jobOrder.update({
+      where: { id: jobOrderId },
+      data: { deadline: newDate },
+    });
+    return result.count;
   }
 
   async findDetail(id: string): Promise<JobOrderDetailRecord | null> {

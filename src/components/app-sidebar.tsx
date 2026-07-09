@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  CalendarDays,
   ChevronsUpDown,
   ClipboardList,
   FileText,
@@ -56,6 +57,7 @@ const navGroups = [
     label: "Operations",
     items: [
       { title: "Job Orders", href: "/job-orders", icon: ClipboardList },
+      { title: "JO Calendar", href: "/job-orders/calendar", icon: CalendarDays },
       { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck },
     ],
   },
@@ -88,6 +90,17 @@ type SidebarUser = {
 
 export function AppSidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
+
+  // Highlight only the most specific match (e.g. /job-orders/calendar must
+  // not also light up /job-orders).
+  const allHrefs = navGroups.flatMap((g) => g.items.map((i) => i.href));
+  const matches = (href: string) =>
+    href === "/"
+      ? pathname === "/"
+      : pathname === href || pathname.startsWith(href + "/");
+  const isActiveHref = (href: string) =>
+    matches(href) &&
+    !allHrefs.some((other) => other.length > href.length && matches(other));
   const initials = (user.name ?? user.email ?? "?")
     .split(" ")
     .map((part) => part[0])
@@ -124,11 +137,7 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
                 {group.items.map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
-                      isActive={
-                        item.href === "/"
-                          ? pathname === "/"
-                          : pathname.startsWith(item.href)
-                      }
+                      isActive={isActiveHref(item.href)}
                       tooltip={item.title}
                       render={<Link href={item.href} />}
                     >

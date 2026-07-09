@@ -1,4 +1,5 @@
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { format } from "date-fns";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { assertRole, type Actor } from "@/lib/authz";
 import { JobOrderStatus, Role } from "@/generated/prisma/enums";
 import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
@@ -17,6 +18,7 @@ import type {
   BoardMetricsDto,
   ItemEditInput,
   ItemStatusUpdateInput,
+  MoveDeadlineInput,
   JobOrderCreateInput,
   JobOrderDetailDto,
   JobOrderItemDto,
@@ -43,6 +45,10 @@ const DAY_MS = 86_400_000;
 const parseDate = (value?: string): Date | null =>
   value ? new Date(`${value}T00:00:00`) : null;
 const toIso = (d: Date | null): string | null => (d ? d.toISOString() : null);
+// Date-only fields (deadlines, plan dates) serialize as LOCAL yyyy-MM-dd —
+// UTC ISO would shift them a day back (legacy formatDate_ was local too).
+const dateOnly = (d: Date | null): string | null =>
+  d ? format(d, "yyyy-MM-dd") : null;
 const money = (n: number): string => n.toFixed(2);
 
 export class JobOrderService {
@@ -63,6 +69,66 @@ export class JobOrderService {
   /** Readable by every authenticated role (the route enforces the session). */
   async getBoardMetrics(): Promise<BoardMetricsDto> {
     return this.jobOrders.countBoardMetrics();
+  }
+
+  /** Calendar pins for one month (legacy getJODeadlinesForMonth). */
+  async listCalendar(
+    _actor: Actor,
+    year: number,
+    month: number
+  ): Promise<JobOrderItemRowDto[]> {
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 1);
+    const rows = await this.jobOrders.listCalendarItems(start, end);
+    return rows.map(mapItemRow);
+  }
+
+  /** Legacy updateJODeadlineFromCalendar: drag-drop moves the deadline of
+   *  every open item of the JO together, with a no-op guard + audit entry. */
+  async moveJoDeadline(
+    actor: Actor,
+    input: MoveDeadlineInput
+  ): Promise<{ itemsMoved: number }> {
+    assertRole(actor, DELETE_ROLES); // ADMIN/MANAGER ≈ legacy Admin/Production Planner
+
+    const detail = await this.jobOrders.findDetail(input.jobOrderId);
+    if (!detail) throw new NotFoundError("Job order not found.");
+
+    const newDate = parseDate(input.newDate)!;
+    const open = detail.items.filter((i) => i.archivedAt === null);
+    if (open.length === 0) {
+      throw new ValidationError("This JO has no active items to move.");
+    }
+    if (open.every((i) => dateOnly(i.deadline) === input.newDate)) {
+      throw new ValidationError(`Deadline is already ${input.newDate}.`);
+    }
+
+    const oldDeadline = dateOnly(detail.deadline) ?? "(none)";
+
+    return this.jobOrders.withTransaction(async (tx) => {
+      const itemsMoved = await this.jobOrders.moveJoDeadline(
+        input.jobOrderId,
+        newDate,
+        tx
+      );
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrder",
+          entityId: input.jobOrderId,
+          action: "deadline-moved",
+          payload: {
+            joNumber: detail.joNumber,
+            oldDeadline,
+            newDeadline: input.newDate,
+            itemsMoved,
+            source: "calendar_drag",
+          },
+        },
+        tx
+      );
+      return { itemsMoved };
+    });
   }
 
   /** Per-item board rows (legacy JOWebApp table: one row per line item). */
@@ -513,11 +579,11 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
     lineTotal: item.lineTotal.toString(),
     productionStatus: item.productionStatus,
     department: item.department,
-    deadline: toIso(item.deadline),
+    deadline: dateOnly(item.deadline),
     daysLeft: item.deadline
       ? Math.ceil((item.deadline.getTime() - now) / DAY_MS)
       : null,
-    actualDate: toIso(item.actualDate),
+    actualDate: dateOnly(item.actualDate),
     assignedTo: item.assignedTo,
     category: item.category,
     isLFP: item.isLFP,
@@ -564,7 +630,7 @@ function mapListRow(row: JobOrderListRecord): JobOrderListRowDto {
     total: row.total.toString(),
     itemCount: row.items.length,
     openItemCount: open.length,
-    deadline: toIso(deadline),
+    deadline: dateOnly(deadline),
     isRush: open.some((i) => i.isRush),
     hasWaitingPickup: row.items.some(
       (i) => i.waitingPickupSince !== null && i.archivedAt === null
@@ -587,9 +653,9 @@ function mapDetail(detail: JobOrderDetailRecord): JobOrderDetailDto {
     status: detail.status,
     customer: detail.customer,
     notes: detail.notes,
-    planDateStart: toIso(detail.planDateStart),
-    planDateEnd: toIso(detail.planDateEnd),
-    deadline: toIso(detail.deadline),
+    planDateStart: dateOnly(detail.planDateStart),
+    planDateEnd: dateOnly(detail.planDateEnd),
+    deadline: dateOnly(detail.deadline),
     total: detail.total.toString(),
     isLFP: detail.isLFP,
     imported: detail.importedAt !== null,

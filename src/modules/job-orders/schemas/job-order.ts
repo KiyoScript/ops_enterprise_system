@@ -128,8 +128,23 @@ export const importRequestInput = z.object({
 
 export const itemListFilters = jobOrderListFilters;
 
+export const calendarMonthInput = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+});
+
+// Calendar drag-drop moves the deadline of the WHOLE JO — every open item
+// together, exactly like legacy updateJODeadlineFromCalendar.
+export const moveDeadlineInput = z.object({
+  jobOrderId: z.string().min(1),
+  newDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format. Expected YYYY-MM-DD."),
+});
+
 export type JobOrderItemInput = z.infer<typeof jobOrderItemInput>;
 export type ItemEditInput = z.infer<typeof itemEditInput>;
+export type MoveDeadlineInput = z.infer<typeof moveDeadlineInput>;
 export type JobOrderCreateInput = z.infer<typeof jobOrderCreateInput>;
 export type JobOrderUpdateInput = z.infer<typeof jobOrderUpdateInput>;
 export type ItemStatusUpdateInput = z.infer<typeof itemStatusUpdateInput>;

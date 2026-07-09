@@ -10,6 +10,7 @@ import { fetchJson } from "@/lib/api-client";
 import type {
   BoardMetricsDto,
   ImportSummaryDto,
+  JobOrderItemRowDto,
   JobOrderItemsPageDto,
   JobOrderListPageDto,
 } from "../schemas/job-order";
@@ -42,6 +43,18 @@ export function useJoItemsInfinite(params: JobOrderListParams) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+/** Deadline pins for one month (legacy JO Calendar). */
+export function useJoCalendar(year: number, month: number) {
+  return useQuery({
+    queryKey: ["job-orders", "calendar", year, month],
+    queryFn: () =>
+      fetchJson<JobOrderItemRowDto[]>(
+        `/api/job-orders/calendar?year=${year}&month=${month}`
+      ),
+    staleTime: 30_000,
   });
 }
 
