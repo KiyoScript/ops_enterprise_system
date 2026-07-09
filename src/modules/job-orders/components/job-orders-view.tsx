@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useQueryState } from "nuqs";
 import { format } from "date-fns";
-import { PlusIcon, ZapIcon } from "lucide-react";
+import { PencilIcon, PlusIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ColorBadge } from "@/components/color-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,20 +30,28 @@ import {
   ErrorState,
   TableSkeletonRows,
 } from "@/components/data-states";
+import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
-import { useJobOrdersInfinite } from "../hooks/use-job-orders";
+import { useJoItemsInfinite } from "../hooks/use-job-orders";
+import type { JobOrderItemRowDto } from "../schemas/job-order";
+import { BoardMetrics } from "./board-metrics";
 import { ImportDialog } from "./import-dialog";
-import { JoStatusBadge } from "./status-badge";
+import { ItemEditDialog } from "./item-edit-dialog";
+import { ItemStatusBadge } from "./status-badge";
 
 const VIEWS = [
   { value: "active", label: "Active" },
-  { value: "overdue", label: "Overdue" },
+  { value: "ongoing", label: "Ongoing" },
   { value: "waiting", label: "Waiting pickup" },
-  { value: "done", label: "Completed" },
+  { value: "overdue", label: "Overdue" },
+  { value: "custApproval", label: "Customers Approval" },
+  { value: "smAlarming", label: "S&M Alarming" },
+  { value: "smOverdue", label: "S&M Overdue" },
+  { value: "done", label: "Archived (done)" },
   { value: "all", label: "All" },
 ] as const;
 
-const COLS = 7;
+const COLS = 6;
 
 export function JobOrdersView({
   canWrite,
@@ -54,19 +64,34 @@ export function JobOrdersView({
   const [q, setQ] = useQueryState("q", { defaultValue: "" });
   const [view, setView] = useQueryState("view", { defaultValue: "active" });
   const debouncedQ = useDebounce(q);
+  const [editing, setEditing] = useState<JobOrderItemRowDto | null>(null);
 
-  const query = useJobOrdersInfinite({ q: debouncedQ, view });
+  const query = useJoItemsInfinite({ q: debouncedQ, view });
   const rows = query.data?.pages.flatMap((page) => page.rows) ?? [];
+
+  // Legacy table bands rows by JO so multi-item JOs read as one group.
+  const banded = new Map<string, boolean>();
+  let band = false;
+  let lastJo = "";
+  for (const row of rows) {
+    if (row.joNumber !== lastJo) {
+      band = !band;
+      lastJo = row.joNumber;
+    }
+    banded.set(row.id, band);
+  }
 
   return (
     <div className="grid gap-4">
+      <BoardMetrics activeView={view} onSelect={(next) => setView(next)} />
+
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search JO # or customer…"
-          className="max-w-64"
-          aria-label="Search job orders"
+          placeholder="Search JO #, customer, or description…"
+          className="max-w-72"
+          aria-label="Search job order items"
         />
         <Select value={view} onValueChange={(value) => setView(value as string)}>
           <SelectTrigger aria-label="Filter view">
@@ -91,17 +116,16 @@ export function JobOrdersView({
       </div>
 
       <Card className="py-0">
-        <CardContent className="px-0">
+        <CardContent className="overflow-x-auto px-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>JO #</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Deadline</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead className="min-w-64">Name</TableHead>
+                <TableHead className="min-w-56">Status</TableHead>
+                <TableHead>Team Status</TableHead>
+                <TableHead>Assigned To</TableHead>
+                <TableHead>Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -120,7 +144,7 @@ export function JobOrdersView({
                 <TableRow>
                   <TableCell colSpan={COLS}>
                     <EmptyState
-                      title="No job orders here yet"
+                      title="No records found"
                       description={
                         view === "active"
                           ? "Create a job order or import your legacy data to get started."
@@ -131,50 +155,98 @@ export function JobOrdersView({
                 </TableRow>
               ) : (
                 rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">
-                      <Link
-                        href={`/job-orders/${row.id}`}
-                        className="flex items-center gap-1.5 hover:underline"
-                      >
-                        {row.joNumber}
-                        {row.isRush && (
-                          <ZapIcon className="size-3.5 text-destructive" aria-label="Rush" />
+                  <TableRow
+                    key={row.id}
+                    className={cn(banded.get(row.id) && "bg-muted/40")}
+                  >
+                    <TableCell className="align-top whitespace-nowrap">
+                      <div className="grid justify-items-start gap-1">
+                        <span className="font-semibold">{row.joNumber}</span>
+                        {row.isRush && <ColorBadge tone="red" label="🔥 RUSH" />}
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="grid gap-0.5">
+                        <span className="font-medium">{row.customerName}</span>
+                        <span className="whitespace-pre-line text-muted-foreground">
+                          {row.description}
+                        </span>
+                        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>QTY: {row.qty}</span>
+                          {row.deadline && (
+                            <span
+                              className={
+                                row.isOverdue
+                                  ? "font-medium text-destructive"
+                                  : undefined
+                              }
+                            >
+                              📅 {format(new Date(row.deadline), "M/d/yyyy")}
+                              {!row.isDone && row.daysLeft !== null
+                                ? row.daysLeft >= 0
+                                  ? ` · ${row.daysLeft}d left`
+                                  : ` · ${-row.daysLeft}d overdue`
+                                : ""}
+                            </span>
+                          )}
+                          <span>{formatMoney(row.lineTotal)}</span>
+                          {row.isLFP && row.lfpWidth && row.lfpHeight && (
+                            <ColorBadge
+                              tone="amber"
+                              label={`${row.lfpWidth} × ${row.lfpHeight} ${row.lfpUnit ?? ""}`}
+                            />
+                          )}
+                          {row.category && <ColorBadge label={row.category} />}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-72 align-top">
+                      {row.statusHistory ? (
+                        <span className="line-clamp-5 whitespace-pre-line text-xs leading-relaxed">
+                          {row.statusHistory}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="grid justify-items-start gap-1">
+                        <ItemStatusBadge
+                          productionStatus={row.productionStatus}
+                          isDone={row.isDone}
+                          isWaitingPickup={row.isWaitingPickup}
+                          isOverdue={row.isOverdue}
+                        />
+                        {row.waitingPickupSince && !row.isDone && (
+                          <span className="text-xs text-muted-foreground">
+                            since {format(new Date(row.waitingPickupSince), "M/d")}
+                          </span>
                         )}
-                      </Link>
+                      </div>
                     </TableCell>
-                    <TableCell>{row.customerName}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.status === "COMPLETED"
-                        ? row.itemCount
-                        : `${row.openItemCount} open / ${row.itemCount}`}
+                    <TableCell className="align-top">
+                      {row.assignedTo ? (
+                        <div className="flex max-w-40 flex-wrap gap-1">
+                          {row.assignedTo.split(",").map((name) => (
+                            <Badge key={name} variant="secondary">
+                              {name.trim()}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
-                    <TableCell>
-                      <JoStatusBadge
-                        status={row.status}
-                        isOverdue={row.isOverdue}
-                        hasWaitingPickup={row.hasWaitingPickup}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(row.total)}
-                    </TableCell>
-                    <TableCell
-                      className={row.isOverdue ? "text-destructive" : undefined}
-                    >
-                      {row.deadline
-                        ? format(new Date(row.deadline), "M/d/yyyy")
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      <span className="flex items-center gap-1.5">
-                        {format(new Date(row.createdAt), "M/d/yyyy")}
-                        {row.imported && (
-                          <Badge variant="ghost" className="text-[10px]">
-                            imported
-                          </Badge>
-                        )}
-                      </span>
+                    <TableCell className="align-top">
+                      {canWrite && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditing(row)}
+                        >
+                          <PencilIcon /> Edit
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
@@ -194,6 +266,8 @@ export function JobOrdersView({
           {query.isFetchingNextPage ? "Loading…" : "Load more"}
         </Button>
       )}
+
+      <ItemEditDialog row={editing} onClose={() => setEditing(null)} />
     </div>
   );
 }

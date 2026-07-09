@@ -3,11 +3,21 @@
 // Run: npx tsx scripts/verify-jo.ts
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
+import { parseCsv } from "../src/lib/csv";
 import {
   getJobOrderService,
   getLegacyImportService,
 } from "../src/modules/job-orders/services";
+import {
+  jobOrderCreateInput,
+  jobOrderEditFormInput,
+} from "../src/modules/job-orders/schemas/job-order";
 import type { Actor } from "../src/lib/authz";
+
+const dateStr = (offsetDays: number) => {
+  const d = new Date(Date.now() + offsetDays * 86_400_000);
+  return d.toISOString().slice(0, 10);
+};
 
 const HEADERS =
   "Department,Status Department,Plan Date Start,Plan Date End,Date Today,Deadline Promised,Actual Date,Status History,Formatted JO Specs,Days Left,Employee Assigned,JO Number,JO Amount,Category,LFP Width,LFP Height,LFP Unit,Waiting Pickup Since,Is Rush,Line Item ID";
@@ -66,19 +76,19 @@ async function main() {
   await cleanup();
 
   console.log("1) Import Line-up JOs CSV");
-  const s1 = await importer.import(actor, LINEUP_CSV, "lineup");
+  const s1 = await importer.import(actor, parseCsv(LINEUP_CSV), "lineup");
   check("2 JOs created", s1.jobOrdersCreated === 2, s1);
   check("3 items created", s1.itemsCreated === 3, s1);
   check("2 customers created", s1.customersCreated === 2, s1);
   check("no errors", s1.errors.length === 0, s1.errors);
 
   console.log("2) Re-import is idempotent");
-  const s2 = await importer.import(actor, LINEUP_CSV, "lineup");
+  const s2 = await importer.import(actor, parseCsv(LINEUP_CSV), "lineup");
   check("0 created on re-import", s2.jobOrdersCreated === 0, s2);
   check("2 skipped as existing", s2.skippedExisting.length === 2, s2);
 
   console.log("3) Import Archive CSV");
-  const s3 = await importer.import(actor, ARCHIVE_CSV, "archive");
+  const s3 = await importer.import(actor, parseCsv(ARCHIVE_CSV), "archive");
   check("1 archived JO created", s3.jobOrdersCreated === 1, s3);
   check("customer A reused (0 new)", s3.customersCreated === 0, s3);
 
@@ -107,6 +117,58 @@ async function main() {
   const sticker = d1.items.find((i) => i.lineItemId === "VERIFY-001-02")!;
   check("waitingPickupSince imported", sticker.waitingPickupSince !== null, sticker);
   check("total = 1800", d1.total === "1800", d1.total);
+
+  console.log("4b) Board metrics (legacy JO_METRICS parity)");
+  const baseline = await jos.getBoardMetrics();
+  const mkItem = (status: string, deadline: string) => ({
+    description: "metric fixture",
+    qty: "1",
+    amount: "100",
+    deadline,
+    productionStatus: status,
+    isLFP: false,
+    isRush: false,
+  });
+  await jos.create(actor, {
+    joNumber: "VERIFY-SM-1",
+    customerName: "Verify Customer A",
+    items: [mkItem("Waiting - Sales & Marketing", dateStr(-1))],
+  });
+  await jos.create(actor, {
+    joNumber: "VERIFY-SM-2",
+    customerName: "Verify Customer A",
+    items: [mkItem("Waiting - Sales & Marketing", dateStr(2))],
+  });
+  await jos.create(actor, {
+    joNumber: "VERIFY-CA-1",
+    customerName: "Verify Customer A",
+    items: [mkItem("Waiting - Customers Approval", dateStr(10))],
+  });
+  const m = await jos.getBoardMetrics();
+  check("all +3", m.all === baseline.all + 3, [baseline.all, m.all]);
+  check("smOverdue +1", m.smOverdue === baseline.smOverdue + 1, [baseline.smOverdue, m.smOverdue]);
+  check("smAlarming +1", m.smAlarming === baseline.smAlarming + 1, [baseline.smAlarming, m.smAlarming]);
+  check("custApproval +1", m.custApproval === baseline.custApproval + 1, [baseline.custApproval, m.custApproval]);
+  check("overdue +1 (SM-1 past deadline)", m.overdue === baseline.overdue + 1, [baseline.overdue, m.overdue]);
+  check("ongoing includes imported 'Ongoing - Printing'", m.ongoing >= 1, m.ongoing);
+  check("waiting includes imported pickup item", m.waiting >= 1, m.waiting);
+  const smView = await jos.list(actor, { q: "VERIFY", view: "smOverdue", take: 25 });
+  check("smOverdue view lists VERIFY-SM-1 only", smView.rows.length === 1 && smView.rows[0]!.joNumber === "VERIFY-SM-1", smView.rows.map(r => r.joNumber));
+
+  console.log("4c) Validation parity (legacy submitNewJO)");
+  const noDeadline = {
+    joNumber: "VERIFY-VAL-1",
+    customerName: "X",
+    items: [{ description: "d", qty: "1", amount: "5", isLFP: false, isRush: false }],
+  };
+  const createParse = jobOrderCreateInput.safeParse(noDeadline);
+  check(
+    "create requires item deadline",
+    !createParse.success &&
+      createParse.error.issues.some((i) => i.message === "Deadline is required."),
+    createParse.success ? "parsed" : createParse.error.issues[0]
+  );
+  check("edit allows blank deadline (imported data)", jobOrderEditFormInput.safeParse(noDeadline).success);
 
   console.log("5) Create / duplicate / status flow / edit / delete");
   const created = await jos.create(actor, {
@@ -188,6 +250,52 @@ async function main() {
     forbidden = e instanceof Error ? e.constructor.name : "";
   }
   check("VIEWER cannot create (ForbiddenError)", forbidden === "ForbiddenError", forbidden);
+
+  console.log("5b) Per-item board + edit-modal path (updateItem)");
+  const board = await jos.listItems(actor, { q: "VERIFY", view: "all", take: 50 });
+  check("board lists one row per item (9)", board.rows.length === 9, board.rows.length);
+  check("board rows carry JO + customer", board.rows.every((r) => r.joNumber.startsWith("VERIFY") && r.customerName.length > 0));
+
+  const keychain = d.items.find((i) => i.description === "Extra keychains")!;
+  await jos.updateItem(actor, {
+    id: keychain.id,
+    jobOrderId: created.id,
+    description: "Extra keychains (engraved)",
+    qty: "5",
+    amount: "300",
+    deadline: dateStr(5),
+    productionStatus: "Ongoing - Printing",
+    remark: "modal edit test",
+    assignedTo: "JUAN01",
+    category: "Souvenirs",
+    isLFP: false,
+    lfpWidth: "",
+    lfpHeight: "",
+    lfpUnit: "",
+    isRush: true,
+  });
+  d = await jos.get(actor, created.id);
+  const keychain2 = d.items.find((i) => i.id === keychain.id)!;
+  check("modal edit updated fields", keychain2.description.includes("engraved") && keychain2.isRush && keychain2.assignedTo === "JUAN01");
+  check("modal edit total recomputed (1300)", d.total === "1300", d.total);
+  check("modal edit status + remark in history", (keychain2.statusHistory ?? "").includes("modal edit test"), keychain2.statusHistory);
+
+  await jos.updateItem(actor, {
+    id: keychain.id,
+    jobOrderId: created.id,
+    description: keychain2.description,
+    qty: "5",
+    amount: "300",
+    deadline: dateStr(5),
+    productionStatus: "Delivered to customer",
+    isLFP: false,
+    isRush: false,
+  });
+  d = await jos.get(actor, created.id);
+  check("modal done-status archives item", d.items.find((i) => i.id === keychain.id)!.archivedAt !== null);
+  check("JO completed when last item done via modal", d.status === "COMPLETED", d.status);
+  const doneBoard = await jos.listItems(actor, { q: "VERIFY", view: "done", take: 50 });
+  check("archived view shows done items", doneBoard.rows.some((r) => r.id === keychain.id));
 
   await jos.softDelete(actor, created.id);
   let gone = "";

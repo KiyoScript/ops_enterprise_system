@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/authz";
 import { getLookupService } from "@/modules/shared/services/lookup-service";
+import { getEmployeeService } from "@/modules/shared/services/employee-service";
 import { PageHeader } from "@/components/page-header";
 import { LookupManager } from "@/modules/shared/components/lookup-manager";
+import { EmployeeManager } from "@/modules/shared/components/employee-manager";
 
 export const metadata: Metadata = { title: "JO Maintenance" };
 
@@ -14,10 +16,10 @@ export default async function JoMaintenancePage() {
   }
 
   const lookups = getLookupService();
-  const [statuses, employees, categories] = await Promise.all([
+  const [statuses, categories, employees] = await Promise.all([
     lookups.list(actor, "JO_STATUS", true),
-    lookups.list(actor, "JO_EMPLOYEE", true),
     lookups.list(actor, "JO_CATEGORY", true),
+    getEmployeeService().list(actor, true),
   ]);
 
   return (
@@ -34,18 +36,13 @@ export default async function JoMaintenancePage() {
           items={statuses}
         />
         <LookupManager
-          type="JO_EMPLOYEE"
-          title="Employees"
-          description="Production staff assignable to line items (legacy EMPDATABASE)."
-          items={employees}
-        />
-        <LookupManager
           type="JO_CATEGORY"
           title="Service categories"
           description="Item categories (legacy OPSServices). Categories marked LFP auto-tick the large-format flag when picked on a JO item."
           items={categories}
           withLFP
         />
+        <EmployeeManager items={employees} />
       </div>
     </>
   );

@@ -23,43 +23,76 @@ const amountString = z
   .regex(/^\d+(\.\d{1,2})?$/, "Enter a valid amount")
   .refine((v) => parseFloat(v) > 0, "Amount must be greater than 0");
 
-export const jobOrderItemInput = z
-  .object({
-    id: z.string().optional(), // present when editing an existing item
-    description: z.string().trim().min(1, "Job description is required"),
-    qty: qtyString,
-    amount: amountString, // line total, like the legacy "JO Amount"
-    deadline: dateString,
-    productionStatus: z.string().trim().max(120).optional(),
-    assignedTo: z.string().trim().max(120).optional(),
-    category: z.string().trim().max(120).optional(),
-    isLFP: z.boolean(),
-    lfpWidth: z.string().trim().max(20).optional(),
-    lfpHeight: z.string().trim().max(20).optional(),
-    lfpUnit: z.string().trim().max(20).optional(),
-    isRush: z.boolean(),
+const itemFields = z.object({
+  id: z.string().optional(), // present when editing an existing item
+  description: z.string().trim().min(1, "Job description is required"),
+  qty: qtyString,
+  amount: amountString, // line total, like the legacy "JO Amount"
+  deadline: dateString,
+  productionStatus: z.string().trim().max(120).optional(),
+  assignedTo: z.string().trim().max(120).optional(),
+  category: z.string().trim().max(120).optional(),
+  isLFP: z.boolean(),
+  lfpWidth: z.string().trim().max(20).optional(),
+  lfpHeight: z.string().trim().max(20).optional(),
+  lfpUnit: z.string().trim().max(20).optional(),
+  isRush: z.boolean(),
+});
+
+const lfpCheck = (ctx: {
+  value: { isLFP: boolean; lfpWidth?: string; lfpHeight?: string };
+  issues: z.core.$ZodRawIssue[];
+}) => {
+  if (ctx.value.isLFP && (!ctx.value.lfpWidth || !ctx.value.lfpHeight)) {
+    ctx.issues.push({
+      code: "custom",
+      message: "Width and height are required for LFP items",
+      path: ["lfpWidth"],
+      input: ctx.value,
+    });
+  }
+};
+
+export const jobOrderItemInput = itemFields.check(lfpCheck);
+
+// Per-item edit modal (legacy updateJORow): item fields + optional status
+// change with remark, in one save.
+export const itemEditInput = itemFields
+  .extend({
+    id: z.string().min(1),
+    jobOrderId: z.string().min(1),
+    remark: z.string().trim().max(500).optional(),
   })
-  .check((ctx) => {
-    if (ctx.value.isLFP && (!ctx.value.lfpWidth || !ctx.value.lfpHeight)) {
+  .check(lfpCheck);
+
+const jobOrderBaseInput = z.object({
+  joNumber: z.string().trim().min(1, "JO Number is required.").max(60),
+  customerName: z.string().trim().min(1, "Customer Name is required.").max(200),
+  notes: z.string().trim().max(2000).optional(),
+  planDateStart: dateString,
+  planDateEnd: dateString,
+  items: z.array(jobOrderItemInput).min(1, "At least one item is required."),
+});
+
+// Legacy parity (submitNewJO): a NEW JO requires a deadline on every item.
+// Edits don't re-validate it (updateJO never did) so imported historical
+// items with blank deadlines stay editable.
+export const jobOrderCreateInput = jobOrderBaseInput.check((ctx) => {
+  ctx.value.items.forEach((item, index) => {
+    if (!item.deadline) {
       ctx.issues.push({
         code: "custom",
-        message: "Width and height are required for LFP items",
-        path: ["lfpWidth"],
+        message: "Deadline is required.",
+        path: ["items", index, "deadline"],
         input: ctx.value,
       });
     }
   });
-
-export const jobOrderCreateInput = z.object({
-  joNumber: z.string().trim().min(1, "JO number is required").max(60),
-  customerName: z.string().trim().min(1, "Customer is required").max(200),
-  notes: z.string().trim().max(2000).optional(),
-  planDateStart: dateString,
-  planDateEnd: dateString,
-  items: z.array(jobOrderItemInput).min(1, "Add at least one item"),
 });
 
-export const jobOrderUpdateInput = jobOrderCreateInput.extend({
+export const jobOrderEditFormInput = jobOrderBaseInput;
+
+export const jobOrderUpdateInput = jobOrderBaseInput.extend({
   id: z.string().min(1),
 });
 
@@ -72,7 +105,19 @@ export const itemStatusUpdateInput = z.object({
 
 export const jobOrderListFilters = z.object({
   q: z.string().trim().max(200).optional(),
-  view: z.enum(["active", "waiting", "overdue", "done", "all"]).default("active"),
+  view: z
+    .enum([
+      "active",
+      "ongoing",
+      "waiting",
+      "overdue",
+      "custApproval",
+      "smAlarming",
+      "smOverdue",
+      "done",
+      "all",
+    ])
+    .default("active"),
   cursor: z.string().optional(),
   take: z.coerce.number().int().min(1).max(100).default(25),
 });
@@ -81,7 +126,10 @@ export const importRequestInput = z.object({
   source: z.enum(["lineup", "archive"]),
 });
 
+export const itemListFilters = jobOrderListFilters;
+
 export type JobOrderItemInput = z.infer<typeof jobOrderItemInput>;
+export type ItemEditInput = z.infer<typeof itemEditInput>;
 export type JobOrderCreateInput = z.infer<typeof jobOrderCreateInput>;
 export type JobOrderUpdateInput = z.infer<typeof jobOrderUpdateInput>;
 export type ItemStatusUpdateInput = z.infer<typeof itemStatusUpdateInput>;
@@ -137,6 +185,18 @@ export type JobOrderListPageDto = {
   nextCursor: string | null;
 };
 
+/** One board row = one line item (legacy JOWebApp table). */
+export type JobOrderItemRowDto = JobOrderItemDto & {
+  jobOrderId: string;
+  joNumber: string;
+  customerName: string;
+};
+
+export type JobOrderItemsPageDto = {
+  rows: JobOrderItemRowDto[];
+  nextCursor: string | null;
+};
+
 export type JobOrderDetailDto = {
   id: string;
   joNumber: string;
@@ -153,6 +213,17 @@ export type JobOrderDetailDto = {
   createdByName: string;
   completedAt: string | null;
   items: JobOrderItemDto[];
+};
+
+/** Counts for the board metric cards (per ITEM, legacy JO_METRICS parity). */
+export type BoardMetricsDto = {
+  all: number;
+  ongoing: number;
+  waiting: number;
+  overdue: number;
+  custApproval: number;
+  smAlarming: number;
+  smOverdue: number;
 };
 
 export type ImportRowError = { line: number; message: string };

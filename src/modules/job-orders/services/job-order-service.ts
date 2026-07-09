@@ -6,17 +6,23 @@ import type { IActivityLogRepository } from "@/modules/shared/repositories/activ
 import type {
   IJobOrderRepository,
   ItemCreateData,
+  ItemProductionUpdateData,
   ItemUpdateData,
   JobOrderDetailRecord,
+  JobOrderItemBoardRecord,
   JobOrderItemRecord,
   JobOrderListRecord,
 } from "../repositories/job-order-repository";
 import type {
+  BoardMetricsDto,
+  ItemEditInput,
   ItemStatusUpdateInput,
   JobOrderCreateInput,
   JobOrderDetailDto,
   JobOrderItemDto,
   JobOrderItemInput,
+  JobOrderItemRowDto,
+  JobOrderItemsPageDto,
   JobOrderListFilters,
   JobOrderListPageDto,
   JobOrderListRowDto,
@@ -52,6 +58,121 @@ export class JobOrderService {
   ): Promise<JobOrderListPageDto> {
     const { rows, nextCursor } = await this.jobOrders.listPage(filters);
     return { rows: rows.map(mapListRow), nextCursor };
+  }
+
+  /** Readable by every authenticated role (the route enforces the session). */
+  async getBoardMetrics(): Promise<BoardMetricsDto> {
+    return this.jobOrders.countBoardMetrics();
+  }
+
+  /** Per-item board rows (legacy JOWebApp table: one row per line item). */
+  async listItems(
+    _actor: Actor,
+    filters: JobOrderListFilters
+  ): Promise<JobOrderItemsPageDto> {
+    const { rows, nextCursor } = await this.jobOrders.listItemsPage(filters);
+    return { rows: rows.map(mapItemRow), nextCursor };
+  }
+
+  /** Legacy updateJORow: edit an item's fields and (optionally) its status
+   *  in one save — history merge, waiting stamp, done auto-archive included. */
+  async updateItem(actor: Actor, input: ItemEditInput): Promise<void> {
+    assertRole(actor, WRITER_ROLES);
+
+    const detail = await this.jobOrders.findDetail(input.jobOrderId);
+    if (!detail) throw new NotFoundError("Job order not found.");
+    const item = detail.items.find((i) => i.id === input.id);
+    if (!item) throw new NotFoundError("Job order item not found.");
+
+    const qty = parseInt(input.qty, 10);
+    const amount = parseFloat(input.amount);
+    const data: ItemUpdateData & Partial<ItemProductionUpdateData> = {
+      description: input.description,
+      qty,
+      unitPrice: money(amount / qty),
+      lineTotal: money(amount),
+      deadline: parseDate(input.deadline),
+      assignedTo: input.assignedTo || null,
+      category: input.category || null,
+      isLFP: input.isLFP,
+      lfpWidth: input.isLFP ? input.lfpWidth || null : null,
+      lfpHeight: input.isLFP ? input.lfpHeight || null : null,
+      lfpUnit: input.isLFP ? input.lfpUnit || "ft" : null,
+      isRush: input.isRush,
+      lineItemId: item.lineItemId,
+      sortOrder: item.sortOrder,
+    };
+
+    // Status transition, only when it actually changed (same rules as the
+    // dedicated status update).
+    const status = input.productionStatus?.trim();
+    const statusChanged = !!status && status !== item.productionStatus;
+    if (statusChanged) {
+      const now = new Date();
+      const wasWaiting = isWaitingPickupStatus(item.productionStatus);
+      const nowWaiting = isWaitingPickupStatus(status);
+      let waitingPickupSince = item.waitingPickupSince;
+      if (nowWaiting && !wasWaiting) waitingPickupSince = now;
+      else if (!nowWaiting) waitingPickupSince = null;
+      const done = isDoneStatus(status);
+
+      data.productionStatus = status;
+      data.department = departmentOf(status);
+      data.statusHistory = appendHistory(
+        item.statusHistory,
+        input.remark ? `${status} — ${input.remark}` : status
+      );
+      data.waitingPickupSince = waitingPickupSince;
+      data.archivedAt = done ? (item.archivedAt ?? now) : null;
+      data.actualDate = done ? (item.actualDate ?? now) : item.actualDate;
+    }
+
+    // Recompute the JO header from the edited set of items.
+    const items = detail.items.map((i) =>
+      i.id === item.id
+        ? {
+            lineTotal: money(amount),
+            deadline: data.deadline ?? null,
+            isLFP: input.isLFP,
+          }
+        : { lineTotal: i.lineTotal.toString(), deadline: i.deadline, isLFP: i.isLFP }
+    );
+    const total = money(
+      items.reduce((sum, i) => sum + parseFloat(i.lineTotal), 0)
+    );
+    const deadlines = items
+      .map((i) => i.deadline)
+      .filter((d): d is Date => d !== null);
+
+    await this.jobOrders.withTransaction(async (tx) => {
+      await this.jobOrders.updateItem(input.id, data, tx);
+      await this.jobOrders.updateHeader(
+        input.jobOrderId,
+        {
+          subtotal: total,
+          total,
+          deadline: deadlines.length
+            ? new Date(Math.min(...deadlines.map((d) => d.getTime())))
+            : null,
+          isLFP: items.some((i) => i.isLFP),
+        },
+        tx
+      );
+      await this.syncJoStatus(actor, input.jobOrderId, detail.status, tx);
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "JobOrderItem",
+          entityId: input.id,
+          action: "update",
+          payload: {
+            joNumber: detail.joNumber,
+            statusChanged: statusChanged ? status : false,
+          },
+        },
+        tx
+      );
+    });
   }
 
   async get(_actor: Actor, id: string): Promise<JobOrderDetailDto> {
@@ -411,6 +532,15 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
     isDone: done,
     isWaitingPickup: waiting,
     isOverdue: overdue,
+  };
+}
+
+function mapItemRow(record: JobOrderItemBoardRecord): JobOrderItemRowDto {
+  return {
+    ...mapItem(record),
+    jobOrderId: record.jobOrder.id,
+    joNumber: record.jobOrder.joNumber,
+    customerName: record.jobOrder.customer.name,
   };
 }
 

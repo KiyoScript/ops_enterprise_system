@@ -3,11 +3,14 @@
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api-client";
 import type {
+  BoardMetricsDto,
   ImportSummaryDto,
+  JobOrderItemsPageDto,
   JobOrderListPageDto,
 } from "../schemas/job-order";
 
@@ -24,6 +27,30 @@ export function useJobOrdersInfinite(params: JobOrderListParams) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+/** Per-item board rows (one row per line item, like legacy JOWebApp). */
+export function useJoItemsInfinite(params: JobOrderListParams) {
+  return useInfiniteQuery({
+    queryKey: ["job-orders", "items", params],
+    queryFn: ({ pageParam }) => {
+      const search = new URLSearchParams({ view: params.view });
+      if (params.q) search.set("q", params.q);
+      if (pageParam) search.set("cursor", pageParam);
+      return fetchJson<JobOrderItemsPageDto>(`/api/job-orders/items?${search}`);
+    },
+    initialPageParam: "",
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+export function useJoBoardMetrics() {
+  return useQuery({
+    // Prefixed by ["job-orders"] so every JO mutation invalidates it too.
+    queryKey: ["job-orders", "metrics"],
+    queryFn: () => fetchJson<BoardMetricsDto>("/api/job-orders/metrics"),
+    staleTime: 30_000,
   });
 }
 

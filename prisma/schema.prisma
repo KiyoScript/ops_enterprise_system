@@ -128,12 +128,31 @@ enum ReconDayStatus {
 }
 
 // Maintained dropdown lists — the new home of the legacy DatabaseLink
-// reference sheets (StatusDatabase "Status Department", EMPDATABASE,
-// PRISMDatabase "OPSServices"). Quotation/Sales lookups join later.
+// reference sheets (StatusDatabase "Status Department", PRISMDatabase
+// "OPSServices"). Employees have their own master table below.
 enum LookupType {
   JO_STATUS
-  JO_EMPLOYEE
   JO_CATEGORY
+}
+
+// Employee master (legacy EMPDATABASE: Code / Team / Name / Email).
+// JO items reference employees by CODE (plain text, like the legacy sheet),
+// so imported free-text assignments stay valid.
+model Employee {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  team        String?
+  email       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("EmployeeCreatedBy", fields: [createdById], references: [id])
+
+  @@index([isActive])
+  @@index([team])
+  @@index([createdById])
 }
 
 model LookupOption {
@@ -190,6 +209,7 @@ model User {
   reconDaysLocked    ReconciliationDay[]         @relation("ReconLockedBy")
   activityLogs       ActivityLog[]
   lookupsCreated     LookupOption[]              @relation("LookupCreatedBy")
+  employeesCreated   Employee[]                  @relation("EmployeeCreatedBy")
 }
 
 // Auth.js OAuth account linking (Google)

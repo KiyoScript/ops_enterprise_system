@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { JobOrderStatus } from "@/generated/prisma/enums";
 import type { DbTx } from "@/modules/shared/repositories/types";
+import { DONE_KEYWORDS } from "../services/production-status";
 
 // ——— selection shapes (single source of truth for what queries fetch) ———
 
@@ -43,6 +44,16 @@ const detailSelect = {
   items: { orderBy: { sortOrder: "asc" as const } },
 } satisfies Prisma.JobOrderSelect;
 
+const itemBoardInclude = {
+  jobOrder: {
+    select: {
+      id: true,
+      joNumber: true,
+      customer: { select: { name: true } },
+    },
+  },
+} satisfies Prisma.JobOrderItemInclude;
+
 export type JobOrderListRecord = Prisma.JobOrderGetPayload<{
   select: typeof listSelect;
 }>;
@@ -50,6 +61,9 @@ export type JobOrderDetailRecord = Prisma.JobOrderGetPayload<{
   select: typeof detailSelect;
 }>;
 export type JobOrderItemRecord = JobOrderDetailRecord["items"][number];
+export type JobOrderItemBoardRecord = Prisma.JobOrderItemGetPayload<{
+  include: typeof itemBoardInclude;
+}>;
 
 // ——— write payloads (plain data in, no Prisma types leak to services) ———
 
@@ -127,18 +141,127 @@ export type ItemProductionState = {
   waitingPickupSince: Date | null;
 };
 
+export type BoardMetricKey =
+  | "all"
+  | "ongoing"
+  | "waiting"
+  | "overdue"
+  | "custApproval"
+  | "smAlarming"
+  | "smOverdue";
+
 export type ListFilter = {
   q?: string;
-  view: "active" | "waiting" | "overdue" | "done" | "all";
+  view:
+    | "active"
+    | "ongoing"
+    | "waiting"
+    | "overdue"
+    | "custApproval"
+    | "smAlarming"
+    | "smOverdue"
+    | "done"
+    | "all";
   cursor?: string;
   take: number;
 };
 
+// ——— board metrics (semantics ported 1:1 from legacy JO_METRICS in
+// JobOrder.html — keyword matches on the "Status - Department" text) ———
+
+const ONGOING_KEYWORDS = ["ongoing", "in progress", "in-progress", "running"];
+const WAITING_PICKUP_KEYWORDS = [
+  "waiting - for pick up",
+  "waiting - for pickup",
+  "for pick up / delivery",
+  "for pickup / delivery",
+  "waiting for pick up",
+  "waiting for pickup",
+];
+const CUST_APPROVAL_KEYWORDS = ["customers approval", "customer approval"];
+const SM_KEYWORDS = ["sales & marketing", "sales and marketing"];
+// Canonical overdue exclusions: finished or awaiting collection items are
+// never overdue (matches isWaitingPickupStatus/isDoneStatus in the domain).
+const PICKUP_EXCLUDE_KEYWORDS = ["pick up", "pickup", "delivery"];
+
+const containsAny = (
+  keywords: readonly string[]
+): Prisma.JobOrderItemWhereInput => ({
+  OR: keywords.map((kw) => ({
+    productionStatus: { contains: kw, mode: "insensitive" as const },
+  })),
+});
+
+const notFinished: Prisma.JobOrderItemWhereInput = {
+  NOT: [containsAny(PICKUP_EXCLUDE_KEYWORDS), containsAny(DONE_KEYWORDS)],
+};
+
+const startOfToday = (): Date => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const DAY_MS = 86_400_000;
+
+/** Item-level filter for one metric (on top of the active-board base). */
+export function boardMetricItemWhere(
+  key: BoardMetricKey
+): Prisma.JobOrderItemWhereInput {
+  const today = startOfToday();
+  switch (key) {
+    case "all":
+      return {};
+    case "ongoing":
+      return containsAny(ONGOING_KEYWORDS);
+    case "waiting":
+      return containsAny(WAITING_PICKUP_KEYWORDS);
+    case "overdue":
+      return { deadline: { lt: today }, ...notFinished };
+    case "custApproval":
+      return containsAny(CUST_APPROVAL_KEYWORDS);
+    case "smAlarming":
+      // Waiting on S&M, due today through +3 days (legacy jo_isAlarmingRow).
+      return {
+        AND: [
+          containsAny(SM_KEYWORDS),
+          { productionStatus: { contains: "waiting", mode: "insensitive" } },
+        ],
+        deadline: { gte: today, lt: new Date(today.getTime() + 4 * DAY_MS) },
+        ...notFinished,
+      };
+    case "smOverdue":
+      return {
+        AND: [
+          containsAny(SM_KEYWORDS),
+          { productionStatus: { contains: "waiting", mode: "insensitive" } },
+        ],
+        deadline: { lt: today },
+        ...notFinished,
+      };
+  }
+}
+
+/** Active board = unarchived items of non-deleted, non-cancelled JOs. */
+const boardBase: Prisma.JobOrderItemWhereInput = {
+  archivedAt: null,
+  jobOrder: { deletedAt: null, status: { not: JobOrderStatus.CANCELLED } },
+};
+
 export interface IJobOrderRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T>;
+  countBoardMetrics(): Promise<Record<BoardMetricKey, number>>;
   listPage(
     filter: ListFilter
   ): Promise<{ rows: JobOrderListRecord[]; nextCursor: string | null }>;
+  listItemsPage(
+    filter: ListFilter
+  ): Promise<{ rows: JobOrderItemBoardRecord[]; nextCursor: string | null }>;
+  updateItem(
+    itemId: string,
+    data: ItemUpdateData & Partial<ItemProductionUpdateData>,
+    tx?: DbTx
+  ): Promise<void>;
   findDetail(id: string): Promise<JobOrderDetailRecord | null>;
   existsJoNumber(joNumber: string, excludeId?: string): Promise<boolean>;
   /** Returns the subset of joNumbers already in the DB (case-insensitive). */
@@ -203,6 +326,29 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     return prisma.$transaction(fn);
   }
 
+  async countBoardMetrics(): Promise<Record<BoardMetricKey, number>> {
+    const keys: BoardMetricKey[] = [
+      "all",
+      "ongoing",
+      "waiting",
+      "overdue",
+      "custApproval",
+      "smAlarming",
+      "smOverdue",
+    ];
+    const counts = await Promise.all(
+      keys.map((key) =>
+        prisma.jobOrderItem.count({
+          where: { ...boardBase, ...boardMetricItemWhere(key) },
+        })
+      )
+    );
+    return Object.fromEntries(keys.map((key, i) => [key, counts[i]])) as Record<
+      BoardMetricKey,
+      number
+    >;
+  }
+
   async listPage(
     filter: ListFilter
   ): Promise<{ rows: JobOrderListRecord[]; nextCursor: string | null }> {
@@ -215,7 +361,6 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       ];
     }
 
-    const now = new Date();
     switch (filter.view) {
       case "active":
         where.status = { in: OPEN_STATUSES };
@@ -223,26 +368,15 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       case "done":
         where.status = JobOrderStatus.COMPLETED;
         break;
-      case "waiting":
-        where.items = {
-          some: { waitingPickupSince: { not: null }, archivedAt: null },
-        };
-        break;
-      case "overdue":
-        // Legacy rule: past-deadline items don't count once they are waiting
-        // for pickup/delivery or archived as done.
-        where.status = {
-          notIn: [JobOrderStatus.COMPLETED, JobOrderStatus.CANCELLED],
-        };
-        where.items = {
-          some: {
-            deadline: { lt: now },
-            archivedAt: null,
-            waitingPickupSince: null,
-          },
-        };
-        break;
       case "all":
+        break;
+      default:
+        // Metric views: JOs with at least one active-board item matching the
+        // metric — same semantics as the cards.
+        where.status = { not: JobOrderStatus.CANCELLED };
+        where.items = {
+          some: { archivedAt: null, ...boardMetricItemWhere(filter.view) },
+        };
         break;
     }
 
@@ -260,6 +394,91 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       rows: page,
       nextCursor: hasMore ? page[page.length - 1]!.id : null,
     };
+  }
+
+  async listItemsPage(
+    filter: ListFilter
+  ): Promise<{ rows: JobOrderItemBoardRecord[]; nextCursor: string | null }> {
+    const where: Prisma.JobOrderItemWhereInput = {
+      jobOrder: { deletedAt: null },
+    };
+
+    switch (filter.view) {
+      case "done":
+        where.archivedAt = { not: null };
+        break;
+      case "all":
+        break;
+      case "active":
+        where.archivedAt = null;
+        where.jobOrder = {
+          deletedAt: null,
+          status: { not: JobOrderStatus.CANCELLED },
+        };
+        break;
+      default:
+        Object.assign(where, boardMetricItemWhere(filter.view));
+        where.archivedAt = null;
+        where.jobOrder = {
+          deletedAt: null,
+          status: { not: JobOrderStatus.CANCELLED },
+        };
+        break;
+    }
+
+    if (filter.q) {
+      where.AND = [
+        {
+          OR: [
+            { description: { contains: filter.q, mode: "insensitive" } },
+            {
+              jobOrder: {
+                joNumber: { contains: filter.q, mode: "insensitive" },
+              },
+            },
+            {
+              jobOrder: {
+                customer: {
+                  name: { contains: filter.q, mode: "insensitive" },
+                },
+              },
+            },
+          ],
+        },
+      ];
+    }
+
+    // Active work sorts by soonest deadline (blank deadlines last); finished
+    // views sort newest first.
+    const orderBy: Prisma.JobOrderItemOrderByWithRelationInput[] =
+      filter.view === "done"
+        ? [{ archivedAt: "desc" }, { id: "desc" }]
+        : filter.view === "all"
+          ? [{ jobOrder: { createdAt: "desc" } }, { id: "desc" }]
+          : [{ deadline: { sort: "asc", nulls: "last" } }, { id: "asc" }];
+
+    const rows = await prisma.jobOrderItem.findMany({
+      where,
+      include: itemBoardInclude,
+      orderBy,
+      take: filter.take + 1,
+      ...(filter.cursor ? { cursor: { id: filter.cursor }, skip: 1 } : {}),
+    });
+
+    const hasMore = rows.length > filter.take;
+    const page = hasMore ? rows.slice(0, filter.take) : rows;
+    return {
+      rows: page,
+      nextCursor: hasMore ? page[page.length - 1]!.id : null,
+    };
+  }
+
+  async updateItem(
+    itemId: string,
+    data: ItemUpdateData & Partial<ItemProductionUpdateData>,
+    tx?: DbTx
+  ): Promise<void> {
+    await (tx ?? prisma).jobOrderItem.update({ where: { id: itemId }, data });
   }
 
   async findDetail(id: string): Promise<JobOrderDetailRecord | null> {

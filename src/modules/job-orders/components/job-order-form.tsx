@@ -22,11 +22,13 @@ import {
 } from "@/app/(app)/job-orders/actions";
 import {
   jobOrderCreateInput,
+  jobOrderEditFormInput,
   type JobOrderCreateInput,
 } from "../schemas/job-order";
 import { PRODUCTION_STATUS_SUGGESTIONS } from "../services/production-status";
 import { SuggestInput } from "@/components/suggest-input";
 import { useLookupOptions } from "@/modules/shared/hooks/use-lookups";
+import { useEmployeeOptions } from "@/modules/shared/hooks/use-employees";
 import { CustomerCombobox } from "./customer-combobox";
 
 const EMPTY_ITEM: JobOrderCreateInput["items"][number] = {
@@ -55,7 +57,11 @@ export function JobOrderForm({
 }) {
   const router = useRouter();
   const form = useForm<JobOrderCreateInput>({
-    resolver: zodResolver(jobOrderCreateInput),
+    // Create enforces the legacy per-item deadline rule; edit stays lax so
+    // imported items with blank deadlines remain saveable.
+    resolver: zodResolver(
+      mode === "create" ? jobOrderCreateInput : jobOrderEditFormInput
+    ),
     defaultValues: initialValues ?? {
       joNumber: "",
       customerName: "",
@@ -72,12 +78,16 @@ export function JobOrderForm({
   // Maintained dropdown lists (Maintenance → Job Orders). Statuses fall back
   // to the built-in defaults until the list is maintained.
   const statusLookups = useLookupOptions("JO_STATUS");
-  const employeeLookups = useLookupOptions("JO_EMPLOYEE");
+  const employees = useEmployeeOptions();
   const categoryLookups = useLookupOptions("JO_CATEGORY");
   const statusOptions = statusLookups.data?.length
     ? statusLookups.data.map((o) => o.label)
     : [...PRODUCTION_STATUS_SUGGESTIONS];
-  const employeeOptions = employeeLookups.data?.map((o) => o.label) ?? [];
+  // Shows "CODE — Name (Team)" but stores the CODE, like legacy EMPDATABASE.
+  const employeeOptions = (employees.data ?? []).map((e) => ({
+    value: e.code,
+    label: `${e.code} — ${e.name}${e.team ? ` (${e.team})` : ""}`,
+  }));
   const categoryOptions = categoryLookups.data?.map((o) => o.label) ?? [];
   const lfpCategories = new Set(
     (categoryLookups.data ?? [])

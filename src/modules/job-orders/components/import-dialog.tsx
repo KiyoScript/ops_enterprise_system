@@ -37,7 +37,7 @@ export function ImportDialog() {
   const submit = () => {
     const file = fileRef.current?.files?.[0];
     if (!file) {
-      toast.error("Choose a CSV file first.");
+      toast.error("Choose a .csv or .xlsx file first.");
       return;
     }
     importCsv.mutate(
@@ -65,15 +65,16 @@ export function ImportDialog() {
   return (
     <Dialog open={open} onOpenChange={reset}>
       <DialogTrigger render={<Button variant="outline" />}>
-        <UploadIcon /> Import legacy CSV
+        <UploadIcon /> Import legacy data
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Import from JOWebApp</DialogTitle>
           <DialogDescription>
-            In Google Sheets open the JO Database and download a tab as CSV
-            (File → Download → .csv), then upload it here. Re-imports are safe:
-            existing JO numbers are skipped.
+            In Google Sheets open the JO Database and download it as .xlsx
+            (File → Download → Microsoft Excel) — the right tab is picked
+            automatically — or download a single tab as .csv. Re-imports are
+            safe: existing JO numbers are skipped.
           </DialogDescription>
         </DialogHeader>
 
@@ -101,8 +102,13 @@ export function ImportDialog() {
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="import-file">CSV file</Label>
-              <Input id="import-file" type="file" accept=".csv,text/csv" ref={fileRef} />
+              <Label htmlFor="import-file">File (.csv or .xlsx)</Label>
+              <Input
+                id="import-file"
+                type="file"
+                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ref={fileRef}
+              />
             </div>
           </div>
         )}

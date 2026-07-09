@@ -4,7 +4,9 @@ import { NotFoundError } from "@/lib/errors";
 import { requireActor } from "@/lib/authz";
 import { getJobOrderService } from "@/modules/job-orders/services";
 import { PageHeader } from "@/components/page-header";
+import { BackButton } from "@/components/back-button";
 import { JobOrderForm } from "@/modules/job-orders/components/job-order-form";
+import { DeleteJobOrderButton } from "@/modules/job-orders/components/delete-job-order-button";
 import type { JobOrderCreateInput } from "@/modules/job-orders/schemas/job-order";
 
 export const metadata: Metadata = { title: "Edit Job Order" };
@@ -55,12 +57,17 @@ export default async function EditJobOrderPage({
     })),
   };
 
+  const canDelete = actor.role === "ADMIN" || actor.role === "MANAGER";
+
   return (
     <>
+      <BackButton fallbackHref="/job-orders" label="Job Orders" />
       <PageHeader
         title={`Edit ${jo.joNumber}`}
-        description="Item production statuses are updated from the detail page, not here."
-      />
+        description="Whole-JO edit: add or remove items, notes, plan dates. Day-to-day status updates happen in the board's Edit modal."
+      >
+        {canDelete && <DeleteJobOrderButton id={jo.id} joNumber={jo.joNumber} />}
+      </PageHeader>
       <JobOrderForm mode="edit" jobOrderId={jo.id} initialValues={initialValues} />
     </>
   );

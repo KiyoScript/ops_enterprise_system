@@ -1,12 +1,9 @@
 import { z } from "zod";
 
 // Maintained dropdown lists (Maintenance section). JO_* types mirror the
-// legacy DatabaseLink sheets; quotation/sales types get added with their modules.
-export const lookupTypeInput = z.enum([
-  "JO_STATUS",
-  "JO_EMPLOYEE",
-  "JO_CATEGORY",
-]);
+// legacy DatabaseLink sheets; quotation/sales types get added with their
+// modules. Employees live in their own master table (see schemas/employee).
+export const lookupTypeInput = z.enum(["JO_STATUS", "JO_CATEGORY"]);
 
 export const lookupCreateInput = z.object({
   type: lookupTypeInput,

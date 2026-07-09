@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { PageHeader } from "@/components/page-header";
+import { BackButton } from "@/components/back-button";
 import { JobOrderForm } from "@/modules/job-orders/components/job-order-form";
 
 export const metadata: Metadata = { title: "New Job Order" };
@@ -15,6 +16,7 @@ export default async function NewJobOrderPage() {
 
   return (
     <>
+      <BackButton fallbackHref="/job-orders" label="Job Orders" />
       <PageHeader
         title="New Job Order"
         description="Enter the JO number from the physical slip, then add its line items."

@@ -5,6 +5,7 @@ import { requireActor } from "@/lib/authz";
 import { fail, ok, ValidationError, type ActionResult } from "@/lib/errors";
 import { getJobOrderService } from "@/modules/job-orders/services";
 import {
+  itemEditInput,
   itemStatusUpdateInput,
   jobOrderCreateInput,
   jobOrderUpdateInput,
@@ -59,6 +60,22 @@ export async function updateItemStatusAction(
     await getJobOrderService().updateItemStatus(actor, parsed.data);
     revalidatePath("/job-orders");
     revalidatePath(`/job-orders/${parsed.data.jobOrderId}`);
+    return ok(null);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function updateItemAction(
+  input: unknown
+): Promise<ActionResult<null>> {
+  try {
+    const actor = await requireActor();
+    const parsed = itemEditInput.safeParse(input);
+    if (!parsed.success) return fail(firstIssue(parsed.error));
+
+    await getJobOrderService().updateItem(actor, parsed.data);
+    revalidatePath("/job-orders");
     return ok(null);
   } catch (err) {
     return fail(err);

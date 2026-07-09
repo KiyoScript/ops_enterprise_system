@@ -31,6 +31,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -167,14 +168,17 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
                 align="start"
                 className="w-(--anchor-width)"
               >
-                <DropdownMenuLabel className="font-normal">
-                  <div className="grid gap-0.5 text-sm">
-                    <span className="font-medium">{user.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {user.email}
-                    </span>
-                  </div>
-                </DropdownMenuLabel>
+                {/* Base UI requires GroupLabel to live inside a Group */}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="grid gap-0.5 text-sm">
+                      <span className="font-medium">{user.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {user.email}
+                      </span>
+                    </div>
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => signOutAction()}>
                   <LogOut />

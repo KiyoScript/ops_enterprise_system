@@ -9,7 +9,6 @@ import type {
   JobOrderCreateData,
 } from "../repositories/job-order-repository";
 import type { ImportSource, ImportSummaryDto } from "../schemas/job-order";
-import { parseCsv } from "./csv";
 import {
   departmentOf,
   isDoneStatus,
@@ -75,9 +74,10 @@ export class LegacyImportService {
     private readonly activity: IActivityLogRepository
   ) {}
 
+  /** `rows` are positional cells (A–T) from fileToRows — CSV or XLSX. */
   async import(
     actor: Actor,
-    csvText: string,
+    rows: string[][],
     source: ImportSource
   ): Promise<ImportSummaryDto> {
     assertRole(actor, IMPORT_ROLES);
@@ -90,8 +90,7 @@ export class LegacyImportService {
       errors: [],
     };
 
-    const rows = parseCsv(csvText);
-    if (rows.length === 0) throw new ValidationError("The CSV file is empty.");
+    if (rows.length === 0) throw new ValidationError("The file is empty.");
 
     // Parse rows → group by JO number (one legacy row = one line item).
     const groups = new Map<string, ParsedRow[]>();
@@ -114,7 +113,7 @@ export class LegacyImportService {
     });
     if (groups.size === 0 && summary.errors.length === 0) {
       throw new ValidationError(
-        "No job order rows found. Export the 'Line-up JOs' or 'Archive Line-up JOs' sheet as CSV with all 20 columns (A–T)."
+        "No job order rows found. Upload the 'Line-up JOs' or 'Archive Line-up JOs' sheet (or the whole workbook as .xlsx) with all 20 columns (A–T)."
       );
     }
 

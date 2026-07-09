@@ -1,4 +1,11 @@
-import { Badge } from "@/components/ui/badge";
+import { ColorBadge, type BadgeTone } from "@/components/color-badge";
+import {
+  isDoneStatus,
+  isWaitingPickupStatus,
+} from "../services/production-status";
+
+// Legacy color semantics: green done, amber waiting-pickup, red overdue,
+// blue ongoing; other statuses get their own stable hashed color.
 
 /** Row-level chip for a JO's lifecycle + legacy overdue/waiting flags. */
 export function JoStatusBadge({
@@ -10,12 +17,14 @@ export function JoStatusBadge({
   isOverdue: boolean;
   hasWaitingPickup: boolean;
 }) {
-  if (status === "COMPLETED") return <Badge variant="secondary">Completed</Badge>;
-  if (status === "CANCELLED") return <Badge variant="ghost">Cancelled</Badge>;
-  if (isOverdue) return <Badge variant="destructive">Overdue</Badge>;
-  if (hasWaitingPickup) return <Badge variant="outline">Waiting pickup</Badge>;
-  return <Badge variant="outline">In progress</Badge>;
+  if (status === "COMPLETED") return <ColorBadge tone="green" label="Completed" />;
+  if (status === "CANCELLED") return <ColorBadge tone="gray" label="Cancelled" />;
+  if (isOverdue) return <ColorBadge tone="red" label="Overdue" />;
+  if (hasWaitingPickup) return <ColorBadge tone="amber" label="Waiting pickup" />;
+  return <ColorBadge tone="blue" label="In progress" />;
 }
+
+const ONGOING_KEYWORDS = ["ongoing", "in progress", "in-progress", "running"];
 
 /** Item-level chip showing the production status text. */
 export function ItemStatusBadge({
@@ -30,8 +39,17 @@ export function ItemStatusBadge({
   isOverdue: boolean;
 }) {
   const label = productionStatus ?? "No status";
-  if (isDone) return <Badge variant="secondary">{label}</Badge>;
-  if (isOverdue) return <Badge variant="destructive">{label}</Badge>;
-  if (isWaitingPickup) return <Badge variant="outline">{label}</Badge>;
-  return <Badge variant="ghost">{label}</Badge>;
+
+  let tone: BadgeTone = "auto";
+  if (isDone || isDoneStatus(productionStatus)) tone = "green";
+  else if (isOverdue) tone = "red";
+  else if (isWaitingPickup || isWaitingPickupStatus(productionStatus))
+    tone = "amber";
+  else if (!productionStatus) tone = "gray";
+  else if (
+    ONGOING_KEYWORDS.some((kw) => productionStatus.toLowerCase().includes(kw))
+  )
+    tone = "blue";
+
+  return <ColorBadge tone={tone} label={label} />;
 }
