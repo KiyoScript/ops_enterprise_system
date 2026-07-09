@@ -25,7 +25,10 @@ import {
   jobOrderEditFormInput,
   type JobOrderCreateInput,
 } from "../schemas/job-order";
-import { PRODUCTION_STATUS_SUGGESTIONS } from "../services/production-status";
+import {
+  isDoneStatus,
+  PRODUCTION_STATUS_SUGGESTIONS,
+} from "../services/production-status";
 import { SuggestInput } from "@/components/suggest-input";
 import { useLookupOptions } from "@/modules/shared/hooks/use-lookups";
 import { useEmployeeOptions } from "@/modules/shared/hooks/use-employees";
@@ -37,6 +40,7 @@ const EMPTY_ITEM: JobOrderCreateInput["items"][number] = {
   amount: "",
   deadline: "",
   productionStatus: "",
+  remark: "",
   assignedTo: "",
   category: "",
   isLFP: false,
@@ -50,10 +54,15 @@ export function JobOrderForm({
   mode,
   jobOrderId,
   initialValues,
+  onSuccess,
+  onCancel,
 }: {
   mode: "create" | "edit";
   jobOrderId?: string;
   initialValues?: JobOrderCreateInput;
+  /** When set (modal usage), called after save instead of navigating. */
+  onSuccess?: () => void;
+  onCancel?: () => void;
 }) {
   const router = useRouter();
   const form = useForm<JobOrderCreateInput>({
@@ -108,11 +117,12 @@ export function JobOrderForm({
     toast.success(
       mode === "create" ? `${values.joNumber} created.` : "Job order updated."
     );
-    router.push(
-      mode === "create"
-        ? `/job-orders/${(result.data as { id: string }).id}`
-        : `/job-orders/${jobOrderId}`
-    );
+    if (onSuccess) {
+      onSuccess();
+      router.refresh();
+      return;
+    }
+    router.push("/job-orders");
     router.refresh();
   });
 
@@ -267,29 +277,35 @@ export function JobOrderForm({
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor={`item-status-${index}`}>Initial status</Label>
-                  {mode === "edit" && initialValues?.items[index]?.id ? (
-                    <Input
-                      id={`item-status-${index}`}
-                      disabled
-                      value={initialValues.items[index]?.productionStatus ?? ""}
-                    />
-                  ) : (
-                    <Controller
-                      control={form.control}
-                      name={`items.${index}.productionStatus`}
-                      render={({ field }) => (
-                        <SuggestInput
-                          id={`item-status-${index}`}
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          options={statusOptions}
-                          placeholder="e.g. Ongoing - Printing"
-                        />
-                      )}
-                    />
-                  )}
+                  <Label htmlFor={`item-status-${index}`}>
+                    {mode === "create" ? "Initial status" : "Status"}
+                  </Label>
+                  <Controller
+                    control={form.control}
+                    name={`items.${index}.productionStatus`}
+                    render={({ field }) => (
+                      <SuggestInput
+                        id={`item-status-${index}`}
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        options={statusOptions}
+                        placeholder="e.g. Ongoing - Printing"
+                      />
+                    )}
+                  />
                 </div>
+                {mode === "edit" && watchedItems?.[index]?.id && (
+                  <div className="grid gap-2">
+                    <Label htmlFor={`item-remark-${index}`}>
+                      Remark (goes to history)
+                    </Label>
+                    <Input
+                      id={`item-remark-${index}`}
+                      placeholder="Optional"
+                      {...form.register(`items.${index}.remark`)}
+                    />
+                  </div>
+                )}
                 <div className="grid gap-2">
                   <Label htmlFor={`item-assigned-${index}`}>Assigned to</Label>
                   <Controller
@@ -307,6 +323,17 @@ export function JobOrderForm({
                   />
                 </div>
               </div>
+
+              {isDoneStatus(watchedItems?.[index]?.productionStatus) &&
+                (mode === "create" ||
+                  watchedItems?.[index]?.productionStatus !==
+                    initialValues?.items[index]?.productionStatus) && (
+                  <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-900 dark:bg-amber-500/15 dark:text-amber-200">
+                    Status is marked as <strong>Done</strong> — this item will
+                    be auto-archived and removed from the active list upon
+                    saving.
+                  </p>
+                )}
 
               <div className="flex flex-wrap items-center gap-6">
                 <label className="flex items-center gap-2 text-sm">
@@ -373,7 +400,7 @@ export function JobOrderForm({
         <Button
           type="button"
           variant="ghost"
-          onClick={() => router.back()}
+          onClick={() => (onCancel ? onCancel() : router.back())}
           disabled={isSubmitting}
         >
           Cancel

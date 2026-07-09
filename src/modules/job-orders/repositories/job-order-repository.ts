@@ -91,9 +91,16 @@ export type ItemCreateData = {
   sortOrder: number;
 };
 
+// Field edits never touch production state directly — status changes go
+// through ItemProductionUpdateData (history merge, waiting stamp, archive).
 export type ItemUpdateData = Omit<
   ItemCreateData,
-  "statusHistory" | "waitingPickupSince" | "archivedAt" | "actualDate"
+  | "statusHistory"
+  | "waitingPickupSince"
+  | "archivedAt"
+  | "actualDate"
+  | "productionStatus"
+  | "department"
 >;
 
 export type JobOrderCreateData = {
@@ -284,7 +291,10 @@ export interface IJobOrderRepository {
     jobOrderId: string,
     ops: {
       create: ItemCreateData[];
-      update: { id: string; data: ItemUpdateData }[];
+      update: {
+        id: string;
+        data: ItemUpdateData & Partial<ItemProductionUpdateData>;
+      }[];
       deleteIds: string[];
     },
     tx?: DbTx
@@ -573,7 +583,10 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     jobOrderId: string,
     ops: {
       create: ItemCreateData[];
-      update: { id: string; data: ItemUpdateData }[];
+      update: {
+        id: string;
+        data: ItemUpdateData & Partial<ItemProductionUpdateData>;
+      }[];
       deleteIds: string[];
     },
     tx?: DbTx

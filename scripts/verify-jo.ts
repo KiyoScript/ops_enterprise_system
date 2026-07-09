@@ -322,6 +322,45 @@ async function main() {
   const doneBoard = await jos.listItems(actor, { q: "VERIFY", view: "done", take: 50 });
   check("archived view shows done items", doneBoard.rows.some((r) => r.id === keychain.id));
 
+  console.log("5c) Full-form (modal) edit applies status transitions");
+  await jos.update(actor, {
+    id: created.id,
+    joNumber: "VERIFY-NEW-1",
+    customerName: "Verify Customer C",
+    items: [
+      {
+        id: itemId,
+        description: "Mug print",
+        qty: "12",
+        amount: "1000",
+        isLFP: false,
+        isRush: false,
+        productionStatus: "Ongoing - Rework",
+        remark: "full-form status change",
+      },
+      {
+        id: keychain.id,
+        description: "Extra keychains (engraved)",
+        qty: "5",
+        amount: "300",
+        isLFP: false,
+        isRush: false,
+        // no productionStatus → stays archived, history untouched
+      },
+    ],
+  });
+  d = await jos.get(actor, created.id);
+  const mug = d.items.find((i) => i.id === itemId)!;
+  check(
+    "full-form status change + remark in history",
+    mug.productionStatus === "Ongoing - Rework" &&
+      (mug.statusHistory ?? "").includes("full-form status change"),
+    mug.statusHistory
+  );
+  check("reverted status un-archives + reopens JO", mug.archivedAt === null && d.status === "IN_PROGRESS", d.status);
+  const keychainAfter = d.items.find((i) => i.id === keychain.id)!;
+  check("untouched item keeps archive + history", keychainAfter.archivedAt !== null && !(keychainAfter.statusHistory ?? "").includes("full-form"));
+
   await jos.softDelete(actor, created.id);
   let gone = "";
   try {

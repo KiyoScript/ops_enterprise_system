@@ -10,6 +10,7 @@ import { fetchJson } from "@/lib/api-client";
 import type {
   BoardMetricsDto,
   ImportSummaryDto,
+  JobOrderDetailDto,
   JobOrderItemRowDto,
   JobOrderItemsPageDto,
   JobOrderListPageDto,
@@ -43,6 +44,15 @@ export function useJoItemsInfinite(params: JobOrderListParams) {
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+/** Full JO detail for the edit modal (enabled while the modal is open). */
+export function useJoDetail(jobOrderId: string | null) {
+  return useQuery({
+    queryKey: ["job-orders", "detail", jobOrderId],
+    queryFn: () => fetchJson<JobOrderDetailDto>(`/api/job-orders/${jobOrderId}`),
+    enabled: jobOrderId !== null,
   });
 }
 

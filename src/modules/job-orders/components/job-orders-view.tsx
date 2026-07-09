@@ -33,10 +33,9 @@ import {
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { useJoItemsInfinite } from "../hooks/use-job-orders";
-import type { JobOrderItemRowDto } from "../schemas/job-order";
 import { BoardMetrics } from "./board-metrics";
 import { ImportDialog } from "./import-dialog";
-import { ItemEditDialog } from "./item-edit-dialog";
+import { JoEditDialog } from "./jo-edit-dialog";
 import { ItemStatusBadge } from "./status-badge";
 
 const VIEWS = [
@@ -64,7 +63,7 @@ export function JobOrdersView({
   const [q, setQ] = useQueryState("q", { defaultValue: "" });
   const [view, setView] = useQueryState("view", { defaultValue: "active" });
   const debouncedQ = useDebounce(q);
-  const [editing, setEditing] = useState<JobOrderItemRowDto | null>(null);
+  const [editingJoId, setEditingJoId] = useState<string | null>(null);
 
   const query = useJoItemsInfinite({ q: debouncedQ, view });
   const rows = query.data?.pages.flatMap((page) => page.rows) ?? [];
@@ -242,7 +241,7 @@ export function JobOrdersView({
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setEditing(row)}
+                          onClick={() => setEditingJoId(row.jobOrderId)}
                         >
                           <PencilIcon /> Edit
                         </Button>
@@ -267,7 +266,11 @@ export function JobOrdersView({
         </Button>
       )}
 
-      <ItemEditDialog row={editing} onClose={() => setEditing(null)} />
+      <JoEditDialog
+        jobOrderId={editingJoId}
+        canDelete={canImport}
+        onClose={() => setEditingJoId(null)}
+      />
     </div>
   );
 }

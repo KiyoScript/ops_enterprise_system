@@ -19,9 +19,12 @@ import { deleteJobOrderAction } from "@/app/(app)/job-orders/actions";
 export function DeleteJobOrderButton({
   id,
   joNumber,
+  onDeleted,
 }: {
   id: string;
   joNumber: string;
+  /** Modal usage: called after delete instead of navigating. */
+  onDeleted?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -35,7 +38,9 @@ export function DeleteJobOrderButton({
         return;
       }
       toast.success(`${joNumber} deleted.`);
-      router.push("/job-orders");
+      setOpen(false);
+      if (onDeleted) onDeleted();
+      else router.push("/job-orders");
       router.refresh();
     });
   };

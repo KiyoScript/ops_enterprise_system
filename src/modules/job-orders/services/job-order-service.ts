@@ -150,47 +150,16 @@ export class JobOrderService {
     const item = detail.items.find((i) => i.id === input.id);
     if (!item) throw new NotFoundError("Job order item not found.");
 
-    const qty = parseInt(input.qty, 10);
     const amount = parseFloat(input.amount);
-    const data: ItemUpdateData & Partial<ItemProductionUpdateData> = {
-      description: input.description,
-      qty,
-      unitPrice: money(amount / qty),
-      lineTotal: money(amount),
-      deadline: parseDate(input.deadline),
-      assignedTo: input.assignedTo || null,
-      category: input.category || null,
-      isLFP: input.isLFP,
-      lfpWidth: input.isLFP ? input.lfpWidth || null : null,
-      lfpHeight: input.isLFP ? input.lfpHeight || null : null,
-      lfpUnit: input.isLFP ? input.lfpUnit || "ft" : null,
-      isRush: input.isRush,
-      lineItemId: item.lineItemId,
-      sortOrder: item.sortOrder,
-    };
+    const data: ItemUpdateData & Partial<ItemProductionUpdateData> =
+      buildItemFields(input, item.sortOrder, item.lineItemId);
 
     // Status transition, only when it actually changed (same rules as the
     // dedicated status update).
     const status = input.productionStatus?.trim();
     const statusChanged = !!status && status !== item.productionStatus;
     if (statusChanged) {
-      const now = new Date();
-      const wasWaiting = isWaitingPickupStatus(item.productionStatus);
-      const nowWaiting = isWaitingPickupStatus(status);
-      let waitingPickupSince = item.waitingPickupSince;
-      if (nowWaiting && !wasWaiting) waitingPickupSince = now;
-      else if (!nowWaiting) waitingPickupSince = null;
-      const done = isDoneStatus(status);
-
-      data.productionStatus = status;
-      data.department = departmentOf(status);
-      data.statusHistory = appendHistory(
-        item.statusHistory,
-        input.remark ? `${status} — ${input.remark}` : status
-      );
-      data.waitingPickupSince = waitingPickupSince;
-      data.archivedAt = done ? (item.archivedAt ?? now) : null;
-      data.actualDate = done ? (item.actualDate ?? now) : item.actualDate;
+      Object.assign(data, buildStatusTransition(item, status, input.remark));
     }
 
     // Recompute the JO header from the edited set of items.
@@ -322,11 +291,25 @@ export class JobOrderService {
     );
     const deleteIds = [...existingIds].filter((id) => !keptIds.has(id));
 
-    const toUpdate: { id: string; data: ItemUpdateData }[] = [];
+    const toUpdate: {
+      id: string;
+      data: ItemUpdateData & Partial<ItemProductionUpdateData>;
+    }[] = [];
     const toCreate: ItemCreateData[] = [];
     input.items.forEach((item, index) => {
-      if (item.id && existingIds.has(item.id)) {
-        toUpdate.push({ id: item.id, data: buildItem(detail.joNumber, item, index) });
+      const current = item.id
+        ? detail.items.find((i) => i.id === item.id)
+        : undefined;
+      if (item.id && current) {
+        const status = item.productionStatus?.trim();
+        const data: ItemUpdateData & Partial<ItemProductionUpdateData> = {
+          // never renumber an existing item
+          ...buildItemFields(item, index, current.lineItemId),
+          ...(status && status !== current.productionStatus
+            ? buildStatusTransition(current, status, item.remark)
+            : {}),
+        };
+        toUpdate.push({ id: item.id, data });
       } else {
         toCreate.push(buildItem(detail.joNumber, item, index));
       }
@@ -496,6 +479,75 @@ export class JobOrderService {
 }
 
 // ——— input → persistence payloads ———
+
+/** Editable field set of an existing item — production state excluded
+ *  (that changes only via buildStatusTransition). */
+function buildItemFields(
+  item: Pick<
+    JobOrderItemInput,
+    | "description"
+    | "qty"
+    | "amount"
+    | "deadline"
+    | "assignedTo"
+    | "category"
+    | "isLFP"
+    | "lfpWidth"
+    | "lfpHeight"
+    | "lfpUnit"
+    | "isRush"
+  >,
+  sortOrder: number,
+  lineItemId: string | null
+): ItemUpdateData {
+  const qty = parseInt(item.qty, 10);
+  const amount = parseFloat(item.amount);
+  return {
+    description: item.description,
+    qty,
+    unitPrice: money(amount / qty),
+    lineTotal: money(amount),
+    deadline: parseDate(item.deadline),
+    assignedTo: item.assignedTo || null,
+    category: item.category || null,
+    isLFP: item.isLFP,
+    lfpWidth: item.isLFP ? item.lfpWidth || null : null,
+    lfpHeight: item.isLFP ? item.lfpHeight || null : null,
+    lfpUnit: item.isLFP ? item.lfpUnit || "ft" : null,
+    isRush: item.isRush,
+    lineItemId,
+    sortOrder,
+  };
+}
+
+/** Production-state changes when an item's status text changes (legacy
+ *  updateJORow): history append with remark, waiting-pickup stamp/clear,
+ *  done auto-archive (and un-archive on revert). */
+function buildStatusTransition(
+  item: JobOrderItemRecord,
+  status: string,
+  remark?: string
+): ItemProductionUpdateData {
+  const now = new Date();
+  const wasWaiting = isWaitingPickupStatus(item.productionStatus);
+  const nowWaiting = isWaitingPickupStatus(status);
+  let waitingPickupSince = item.waitingPickupSince;
+  if (nowWaiting && !wasWaiting) waitingPickupSince = now;
+  else if (!nowWaiting) waitingPickupSince = null;
+  const done = isDoneStatus(status);
+
+  return {
+    productionStatus: status,
+    department: departmentOf(status),
+    statusHistory: appendHistory(
+      item.statusHistory,
+      remark ? `${status} — ${remark}` : status
+    ),
+    waitingPickupSince,
+    archivedAt: done ? (item.archivedAt ?? now) : null,
+    actualDate: done ? (item.actualDate ?? now) : item.actualDate,
+  };
+}
 
 function buildItem(
   joNumber: string,

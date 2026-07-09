@@ -15,9 +15,19 @@ import {
   useInvalidateJobOrders,
   useJoCalendar,
 } from "../hooks/use-job-orders";
-import { ItemEditDialog } from "./item-edit-dialog";
+import { JoEditDialog } from "./jo-edit-dialog";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Legend + day tints ported from the legacy JOCalendar (has-jo / has-overdue
+// cell backgrounds, weekend date-number tints, today circle).
+const LEGEND = [
+  { label: "Today", swatch: "bg-primary" },
+  { label: "Has Deadline", swatch: "bg-yellow-100 border border-yellow-300 dark:bg-yellow-500/20 dark:border-yellow-500/40" },
+  { label: "Overdue Deadline", swatch: "bg-red-100 border border-red-300 dark:bg-red-500/20 dark:border-red-500/40" },
+  { label: "Sunday", swatch: "bg-red-50 border border-red-300 dark:bg-red-500/10 dark:border-red-500/40" },
+  { label: "Saturday", swatch: "bg-blue-50 border border-blue-300 dark:bg-blue-500/10 dark:border-blue-500/40" },
+] as const;
 
 /** Legacy JO Calendar: one pin per open item on its deadline day; drag a pin
  *  to another day to move the WHOLE JO's deadline (ADMIN/MANAGER only). */
@@ -25,7 +35,7 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-based
-  const [editing, setEditing] = useState<JobOrderItemRowDto | null>(null);
+  const [editingJoId, setEditingJoId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -112,6 +122,15 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
         </span>
       </div>
 
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {LEGEND.map((entry) => (
+          <span key={entry.label} className="flex items-center gap-1.5 text-xs">
+            <span className={cn("size-3.5 rounded-full", entry.swatch)} />
+            {entry.label}
+          </span>
+        ))}
+      </div>
+
       {query.isError ? (
         <Card>
           <ErrorState message={query.error.message} onRetry={() => query.refetch()} />
@@ -121,7 +140,14 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
           <CardContent className="overflow-x-auto px-0">
             <div className="grid min-w-4xl grid-cols-7 border-b text-center text-xs font-semibold text-muted-foreground">
               {WEEKDAYS.map((d) => (
-                <div key={d} className="py-2">
+                <div
+                  key={d}
+                  className={cn(
+                    "py-2",
+                    d === "Sun" && "text-red-600 dark:text-red-400",
+                    d === "Sat" && "text-blue-600 dark:text-blue-400"
+                  )}
+                >
                   {d}
                 </div>
               ))}
@@ -129,6 +155,8 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
             <div className="grid min-w-4xl grid-cols-7">
               {cells.map((cell) => {
                 const pins = cell.inMonth ? (byDate.get(cell.key) ?? []) : [];
+                const hasOverdue = pins.some((p) => p.isOverdue);
+                const dow = cell.date.getDay();
                 return (
                   <div
                     key={cell.key}
@@ -143,8 +171,13 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
                     onDragLeave={canMove ? () => setDropTarget(null) : undefined}
                     onDrop={canMove ? (e) => drop(cell.key, e) : undefined}
                     className={cn(
-                      "min-h-28 border-r border-b p-1.5 last:border-r-0 [&:nth-child(7n)]:border-r-0",
+                      "min-h-28 border-r border-b p-1.5 nth-[7n]:border-r-0",
                       !cell.inMonth && "bg-muted/40",
+                      // Legacy has-jo / has-overdue cell tints (overdue wins)
+                      pins.length > 0 &&
+                        !hasOverdue &&
+                        "bg-yellow-50 dark:bg-yellow-500/10",
+                      hasOverdue && "bg-red-50 dark:bg-red-500/10",
                       dropTarget === cell.key && "bg-accent ring-2 ring-primary ring-inset"
                     )}
                   >
@@ -153,9 +186,13 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
                         "mb-1 inline-flex size-6 items-center justify-center rounded-full text-xs",
                         cell.isToday
                           ? "bg-primary font-semibold text-primary-foreground"
-                          : cell.inMonth
-                            ? "text-foreground"
-                            : "text-muted-foreground"
+                          : !cell.inMonth
+                            ? "text-muted-foreground"
+                            : dow === 0
+                              ? "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400"
+                              : dow === 6
+                                ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400"
+                                : "text-foreground"
                       )}
                     >
                       {cell.date.getDate()}
@@ -178,7 +215,7 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
                                 })
                               )
                             }
-                            onClick={() => setEditing(pin)}
+                            onClick={() => setEditingJoId(pin.jobOrderId)}
                             title={`${pin.customerName} — ${pin.description}`}
                             className={cn(
                               "w-full truncate rounded-md px-1.5 py-0.5 text-left text-xs font-medium",
@@ -204,7 +241,11 @@ export function JoCalendar({ canMove }: { canMove: boolean }) {
         </Card>
       )}
 
-      <ItemEditDialog row={editing} onClose={() => setEditing(null)} />
+      <JoEditDialog
+        jobOrderId={editingJoId}
+        canDelete={canMove}
+        onClose={() => setEditingJoId(null)}
+      />
     </div>
   );
 }
