@@ -29,6 +29,7 @@ export type AppAction =
   | "import"
   | "move-deadline"
   | "approve" // record the customer's approval (attachment required)
+  | "issue" // issue a delivery receipt
   | "maintain";
 
 export type AppSubject =
@@ -38,6 +39,8 @@ export type AppSubject =
   | "JobOrderItem"
   | "Archive" // the admin-only Archive JOs page
   | "Maintenance" // statuses / categories / employees reference lists
+  // ——— DR module ———
+  | "DeliveryReceipt"
   // ——— TODO(QUOTATION): "Quotation", "PriceList", …
   // ——— TODO(SALES-AUDIT): "Sale", "Booklet", "Reconciliation", …
   | never;
@@ -47,8 +50,8 @@ export type AppAbility = MongoAbility<[AppAction, AppSubject]>;
 export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
   const { can, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
 
-  // Every authenticated user can read the JO board/calendar + pickers.
-  can("read", ["JobOrder", "JobOrderItem", "Maintenance"]);
+  // Every authenticated user can read the JO board/calendar + pickers + DRs.
+  can("read", ["JobOrder", "JobOrderItem", "Maintenance", "DeliveryReceipt"]);
 
   switch (actor.role) {
     case Role.ADMIN:
@@ -61,10 +64,12 @@ export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
       can("import", "JobOrder");
       can("move-deadline", "JobOrder"); // legacy: Admin + Production Planner
       can("maintain", "Maintenance");
+      can(["issue", "update"], "DeliveryReceipt");
       break;
     case Role.ENCODER: // ≈ legacy Sales/Cashier submit rights
       can(["create", "update", "approve"], ["JobOrder"]);
       can(["create", "update"], ["JobOrderItem"]);
+      can(["issue", "update"], "DeliveryReceipt");
       break;
     case Role.AUDITOR:
     case Role.VIEWER:
