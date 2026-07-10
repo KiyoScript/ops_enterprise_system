@@ -28,7 +28,20 @@ export const drListFilters = z.object({
   take: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+// Edit an issued DR by choosing which of the JO's line items it delivers.
+// Full vs Partial is DERIVED: all of the JO's line items on the DR = Full
+// delivery; a subset = Partial. Newly-added items deliver their full remaining
+// quantity; removed items return theirs to stock.
+export const editDrInput = z.object({
+  id: z.string().min(1),
+  jobOrderItemIds: z
+    .array(z.string().min(1))
+    .min(1, "Select at least one item — cancel the DR to deliver none."),
+  notes: z.string().trim().max(2000).optional(),
+});
+
 export type IssueDrInput = z.infer<typeof issueDrInput>;
+export type EditDrInput = z.infer<typeof editDrInput>;
 export type DrListFilters = z.infer<typeof drListFilters>;
 
 // ——— DTOs ———
@@ -60,10 +73,12 @@ export type DrListRowDto = {
   joNumber: string;
   customerName: string;
   status: string;
+  isFullDelivery: boolean;
   issuedAt: string;
   lineCount: number;
   totalQty: number;
   amount: string;
+  items: string[]; // full item descriptions on this DR (never truncated)
 };
 
 export type DrListPageDto = {
@@ -71,19 +86,45 @@ export type DrListPageDto = {
   nextCursor: string | null;
 };
 
+/** Quick-decision metric cards for the DR page. */
+export type DrMetricsDto = {
+  pendingDeliveries: number;
+  issuedToday: number;
+  issuedThisMonth: number;
+  partialThisMonth: number;
+};
+
 export type DrLineDetailDto = {
   id: string;
   description: string;
   lineItemId: string;
-  qty: number;
+  qty: number; // quantity delivered on THIS DR
   unitPrice: string;
   lineTotal: string;
+};
+
+/** One JO line item as an option in the DR edit picker. */
+export type DrEditItemDto = {
+  jobOrderItemId: string;
+  lineItemId: string;
+  description: string;
+  qty: number; // ordered quantity
+  remaining: number; // still undelivered on OTHER DRs
+  deliverable: boolean; // production done → can go on a DR
+  inThisDr: boolean; // currently a line on this DR
+};
+
+export type DrEditOptionsDto = {
+  drId: string;
+  notes: string | null;
+  items: DrEditItemDto[];
 };
 
 export type DrDetailDto = {
   id: string;
   drNumber: string;
   status: string;
+  isFullDelivery: boolean;
   issuedAt: string;
   notes: string | null;
   createdByName: string;

@@ -671,6 +671,9 @@ model DeliveryReceipt {
   customerId  String
   customer    Customer              @relation(fields: [customerId], references: [id])
   status      DeliveryReceiptStatus @default(ISSUED)
+  // Snapshot at issuance: true when this DR delivered the JO's entire
+  // remaining quantity (spec 3.2 Full vs Partial delivery checkbox).
+  isFullDelivery Boolean            @default(false)
   issuedAt    DateTime              @default(now())
   notes       String?
   createdAt   DateTime              @default(now())

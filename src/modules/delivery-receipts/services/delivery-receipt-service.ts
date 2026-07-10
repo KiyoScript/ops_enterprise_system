@@ -13,9 +13,12 @@ import { PrismaDeliveryReceiptRepository } from "../repositories/delivery-receip
 import type {
   DeliverableJoDto,
   DrDetailDto,
+  DrEditOptionsDto,
   DrListFilters,
   DrListPageDto,
   DrListRowDto,
+  DrMetricsDto,
+  EditDrInput,
   IssueDrInput,
 } from "../schemas/delivery-receipt";
 
@@ -121,6 +124,14 @@ export class DeliveryReceiptService {
       throw new ConflictError(`DR Number "${manualNumber}" already exists.`);
     }
 
+    // Full vs Partial is decided by item coverage (business rule): a DR that
+    // carries every one of the JO's line items is a Full delivery; a subset is
+    // a Partial delivery.
+    const allItems = await this.drs.listJoItems(input.jobOrderId);
+    const deliveredIds = new Set(toDeliver.map((l) => l.jobOrderItemId));
+    const isFullDelivery =
+      allItems.length > 0 && allItems.every((it) => deliveredIds.has(it.id));
+
     return this.drs.withTransaction(async (tx) => {
       const drNumber = manualNumber || (await this.generateDrNumber(tx));
       const created = await this.drs.createDr(
@@ -128,6 +139,7 @@ export class DeliveryReceiptService {
           drNumber,
           jobOrderId: input.jobOrderId,
           customerId,
+          isFullDelivery,
           notes: input.notes || null,
           createdById: actor.id,
           lines: toDeliver,
@@ -161,10 +173,124 @@ export class DeliveryReceiptService {
     return { rows: rows.map(mapListRow), nextCursor };
   }
 
+  /** Quick-decision metrics for the DR page. Session enforced by the route. */
+  async getMetrics(): Promise<DrMetricsDto> {
+    return this.drs.getMetrics();
+  }
+
   async get(_actor: Actor, id: string): Promise<DrDetailDto> {
     const dr = await this.drs.findDetail(id);
     if (!dr) throw new NotFoundError("Delivery receipt not found.");
     return mapDetail(dr);
+  }
+
+  /** The JO's line items as edit options — which are on this DR, which are
+   *  deliverable (production done), and each item's remaining quantity. */
+  async getEditOptions(actor: Actor, drId: string): Promise<DrEditOptionsDto> {
+    assertCan(actor, "update", "DeliveryReceipt");
+    const dr = await this.drs.findForEdit(drId);
+    if (!dr) throw new NotFoundError("Delivery receipt not found.");
+    const inThisDr = new Set(dr.lines.map((l) => l.jobOrderItemId));
+    const items = await this.drs.listJoItems(dr.jobOrderId);
+    return {
+      drId,
+      notes: null, // the dialog seeds notes from the loaded detail
+      items: items.map((it) => ({
+        jobOrderItemId: it.id,
+        lineItemId: it.lineItemId ?? "",
+        description: it.description,
+        qty: it.qty,
+        remaining: it.qty - it.qtyDelivered,
+        deliverable: it.archivedAt !== null,
+        inThisDr: inThisDr.has(it.id),
+      })),
+    };
+  }
+
+  /** Edit an issued DR by choosing which JO line items it delivers. Full vs
+   *  Partial is derived from coverage: all of the JO's items on the DR → Full,
+   *  a subset → Partial. Added items deliver their full remaining quantity;
+   *  removed items return theirs to stock. */
+  async edit(actor: Actor, input: EditDrInput): Promise<void> {
+    assertCan(actor, "update", "DeliveryReceipt");
+    const dr = await this.drs.findForEdit(input.id);
+    if (!dr) throw new NotFoundError("Delivery receipt not found.");
+    if (dr.status === "CANCELLED") {
+      throw new ValidationError("A cancelled DR can't be edited.");
+    }
+
+    const allItems = await this.drs.listJoItems(dr.jobOrderId);
+    const byId = new Map(allItems.map((i) => [i.id, i]));
+    const currentQty = new Map(dr.lines.map((l) => [l.jobOrderItemId, l.qty]));
+    const selected = new Set(input.jobOrderItemIds);
+
+    // Every selected item must belong to the JO and be production-done.
+    for (const id of selected) {
+      const it = byId.get(id);
+      if (!it) throw new ValidationError("An item is not part of this JO.");
+      if (it.archivedAt === null) {
+        throw new ValidationError(
+          `${it.lineItemId ?? "Item"} is not done yet — it can't be delivered.`
+        );
+      }
+    }
+
+    const newLines: { jobOrderItemId: string; qty: number }[] = [];
+    const deltas = new Map<string, number>(); // itemId → change in qtyDelivered
+
+    for (const it of allItems) {
+      const wasQty = currentQty.get(it.id) ?? 0;
+      if (selected.has(it.id)) {
+        // keep an existing line's quantity; a newly-added item delivers all
+        // of its still-undelivered quantity.
+        let qty = wasQty;
+        if (wasQty === 0) {
+          const remaining = it.qty - it.qtyDelivered;
+          if (remaining <= 0) {
+            throw new ValidationError(
+              `${it.lineItemId ?? "Item"} is already fully delivered on another DR.`
+            );
+          }
+          qty = remaining;
+        }
+        newLines.push({ jobOrderItemId: it.id, qty });
+        deltas.set(it.id, qty - wasQty);
+      } else if (wasQty > 0) {
+        deltas.set(it.id, -wasQty); // dropped from the DR → give it back
+      }
+    }
+
+    if (newLines.length === 0) {
+      throw new ValidationError(
+        "Select at least one item — cancel the DR to deliver none."
+      );
+    }
+
+    // Full ⟺ every one of the JO's line items is on this DR.
+    const isFullDelivery =
+      allItems.length > 0 && allItems.every((it) => selected.has(it.id));
+
+    await this.drs.withTransaction(async (tx) => {
+      for (const [itemId, delta] of deltas) {
+        if (delta !== 0) await this.drs.incrementDelivered(itemId, delta, tx);
+      }
+      await this.drs.replaceLines(input.id, newLines, tx);
+      await this.drs.setDeliveryState(
+        input.id,
+        { isFullDelivery, notes: input.notes || null },
+        tx
+      );
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "DeliveryReceipt",
+          entityId: input.id,
+          action: "edit",
+          payload: { items: newLines.length, isFullDelivery },
+        },
+        tx
+      );
+    });
   }
 
   /** Cancel a DR and return its delivered quantities to the JO items. */
@@ -222,10 +348,12 @@ function mapListRow(record: DrListRecord): DrListRowDto {
     joNumber: record.jobOrder.joNumber,
     customerName: record.customer.name,
     status: record.status,
+    isFullDelivery: record.isFullDelivery,
     issuedAt: record.issuedAt.toISOString(),
     lineCount: record.lines.length,
     totalQty: record.lines.reduce((s, l) => s + l.qty, 0),
     amount: money(lineAmount(record)),
+    items: record.lines.map((l) => l.jobOrderItem.description),
   };
 }
 
@@ -234,6 +362,7 @@ function mapDetail(record: DrDetailRecord): DrDetailDto {
     id: record.id,
     drNumber: record.drNumber,
     status: record.status,
+    isFullDelivery: record.isFullDelivery,
     issuedAt: record.issuedAt.toISOString(),
     notes: record.notes,
     createdByName: record.createdBy.name,

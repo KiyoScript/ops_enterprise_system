@@ -22,6 +22,7 @@ import {
 } from "@/components/data-states";
 import { useDebounce } from "@/modules/shared/hooks/use-debounce";
 import { useDrList } from "../hooks/use-delivery-receipts";
+import { DrMetrics } from "./dr-metrics";
 import { IssueDrDialog } from "./issue-dr-dialog";
 import { DrDetailDialog } from "./dr-detail-dialog";
 
@@ -34,9 +35,11 @@ const peso = (v: string) => {
 export function DrView({
   canIssue,
   canCancel,
+  canEdit,
 }: {
   canIssue: boolean;
   canCancel: boolean;
+  canEdit: boolean;
 }) {
   const [q, setQ] = useQueryState("q", { defaultValue: "" });
   const debouncedQ = useDebounce(q);
@@ -47,6 +50,8 @@ export function DrView({
 
   return (
     <div className="grid gap-4">
+      <DrMetrics />
+
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={q}
@@ -103,13 +108,29 @@ export function DrView({
                   >
                     <TableCell className="font-medium">{r.drNumber}</TableCell>
                     <TableCell>{r.joNumber}</TableCell>
-                    <TableCell>{r.customerName}</TableCell>
-                    <TableCell>
-                      {r.status === "CANCELLED" ? (
-                        <Badge variant="destructive">Cancelled</Badge>
-                      ) : (
-                        <Badge variant="secondary">Issued</Badge>
+                    <TableCell className="min-w-56 max-w-md">
+                      <div className="wrap-break-word">{r.customerName}</div>
+                      {r.items.length > 0 && (
+                        <ul className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
+                          {r.items.map((d, i) => (
+                            <li key={i} className="wrap-break-word">
+                              • {d.replace(/\s*\n\s*/g, " / ")}
+                            </li>
+                          ))}
+                        </ul>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {r.status === "CANCELLED" ? (
+                          <Badge variant="destructive">Cancelled</Badge>
+                        ) : (
+                          <Badge variant="secondary">Issued</Badge>
+                        )}
+                        <Badge variant="outline">
+                          {r.isFullDelivery ? "Full" : "Partial"}
+                        </Badge>
+                      </div>
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {r.lineCount} / {r.totalQty}
@@ -140,6 +161,7 @@ export function DrView({
       <DrDetailDialog
         drId={detailId}
         canCancel={canCancel}
+        canEdit={canEdit}
         onClose={() => setDetailId(null)}
       />
     </div>
