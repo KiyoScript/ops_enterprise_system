@@ -65,6 +65,23 @@ export async function transitionQuotationAction(
   }
 }
 
+export async function convertQuotationAction(
+  id: string
+): Promise<ActionResult<{ jobOrderId: string; joNumber: string }>> {
+  try {
+    const actor = await requireActor();
+    if (!id) return fail(new ValidationError("Missing quotation id."));
+
+    const result = await getQuotationService().convertToJobOrder(actor, id);
+    revalidatePath("/quotations");
+    revalidatePath(`/quotations/${id}`);
+    revalidatePath("/job-orders");
+    return ok(result);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 export async function archiveQuotationAction(
   id: string
 ): Promise<ActionResult<null>> {

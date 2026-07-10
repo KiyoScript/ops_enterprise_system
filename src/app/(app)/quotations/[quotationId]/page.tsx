@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
-import { PencilIcon } from "lucide-react";
+import { PencilIcon, PrinterIcon } from "lucide-react";
 import { requireActor } from "@/lib/authz";
 import { defineAbilityFor } from "@/lib/ability";
 import { NotFoundError } from "@/lib/errors";
@@ -71,6 +71,19 @@ export default async function QuotationDetailPage({
             </span>
           )}
           <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={
+                <a
+                  href={`/api/quotations/${detail.id}/pdf`}
+                  target="_blank"
+                  rel="noopener"
+                />
+              }
+            >
+              <PrinterIcon /> Print PDF
+            </Button>
             {editable && (
               <Button
                 variant="outline"
@@ -219,6 +232,7 @@ export default async function QuotationDetailPage({
           canUpdate={canUpdate}
           canApprove={ability.can("approve", "Quotation")}
           canSend={ability.can("send", "Quotation")}
+          canConvert={ability.can("convert", "Quotation")}
           canArchive={ability.can("archive", "Quotation")}
         />
       </div>

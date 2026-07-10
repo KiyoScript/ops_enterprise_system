@@ -1,12 +1,18 @@
 import { format } from "date-fns";
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { type Actor } from "@/lib/authz";
 import { assertCan, type AppAction } from "@/lib/ability";
-import { QuotationStatus, type TaxType } from "@/generated/prisma/enums";
+import {
+  JobOrderStatus,
+  QuotationStatus,
+  type TaxType,
+} from "@/generated/prisma/enums";
 import type { ICustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import type { IActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
 import type { DbTx } from "@/modules/shared/repositories/types";
 import type { Prisma } from "@/generated/prisma/client";
+import type { IJobOrderRepository } from "@/modules/job-orders/repositories/job-order-repository";
+import { allocateJoNumber } from "@/modules/job-orders/services/job-order-service";
 import type {
   IQuotationRepository,
   ItemCreateData,
@@ -76,7 +82,8 @@ export class QuotationService {
   constructor(
     private readonly quotations: IQuotationRepository,
     private readonly customers: ICustomerRepository,
-    private readonly activity: IActivityLogRepository
+    private readonly activity: IActivityLogRepository,
+    private readonly jobOrders: IJobOrderRepository
   ) {}
 
   /** One yearly series for ALL products — replaces the 27 per-product
@@ -287,6 +294,88 @@ export class QuotationService {
     });
   }
 
+  /** The point of the fusion: an approved (or sent) quotation becomes a
+   *  DRAFT Job Order — pre-production, so the JO customer-approval gate and
+   *  review flow still apply before work starts. Replaces the legacy
+   *  "copy Job Order text to clipboard" hand-off. */
+  async convertToJobOrder(
+    actor: Actor,
+    id: string
+  ): Promise<{ jobOrderId: string; joNumber: string }> {
+    assertCan(actor, "convert", "Quotation");
+
+    const detail = await this.quotations.findDetail(id);
+    if (!detail) throw new NotFoundError("Quotation not found.");
+    if (detail.jobOrder) {
+      throw new ConflictError(
+        `Already converted to JO ${detail.jobOrder.joNumber}.`
+      );
+    }
+    if (
+      detail.status !== QuotationStatus.APPROVED &&
+      detail.status !== QuotationStatus.SENT
+    ) {
+      throw new ValidationError(
+        "Only an approved or sent quotation can be converted to a JO."
+      );
+    }
+
+    return this.quotations.withTransaction(async (tx) => {
+      const joNumber = await allocateJoNumber(this.jobOrders, tx);
+      const created = await this.jobOrders.createWithItems(
+        {
+          joNumber,
+          quotationId: detail.id,
+          customerId: detail.customer.id,
+          status: JobOrderStatus.DRAFT,
+          isLFP: false,
+          subtotal: detail.subtotal.toString(),
+          total: detail.total.toString(),
+          notes: conversionNotes(detail),
+          createdById: actor.id,
+          items: detail.items.map((item, index) => ({
+            description: item.description,
+            qty: item.qty,
+            unitPrice: item.unitPrice.toString(),
+            lineTotal: item.lineTotal.toString(),
+            specs: (item.specs ?? undefined) as
+              | Prisma.InputJsonValue
+              | undefined,
+            lineItemId: `${joNumber}-${String(index + 1).padStart(2, "0")}`,
+            sortOrder: index,
+          })),
+        },
+        tx
+      );
+      await this.jobOrders.addJoStatusHistory(
+        {
+          jobOrderId: created.id,
+          fromStatus: null,
+          toStatus: JobOrderStatus.DRAFT,
+          changedById: actor.id,
+          remarks: `converted from ${detail.quoteNumber}`,
+        },
+        tx
+      );
+      await this.quotations.setStatus(
+        id,
+        { status: QuotationStatus.CONVERTED },
+        tx
+      );
+      await this.activity.log(
+        {
+          userId: actor.id,
+          entityType: "Quotation",
+          entityId: id,
+          action: "convert",
+          payload: { quoteNumber: detail.quoteNumber, joNumber },
+        },
+        tx
+      );
+      return { jobOrderId: created.id, joNumber };
+    });
+  }
+
   /** Soft removal — converted quotes are history and stay. */
   async archive(actor: Actor, id: string): Promise<void> {
     assertCan(actor, "archive", "Quotation");
@@ -342,6 +431,18 @@ function buildItems(
     specs: item.specs as Prisma.InputJsonValue | undefined,
     sortOrder: index,
   }));
+}
+
+/** JO notes carry the commercial context the JO schema has no columns for. */
+function conversionNotes(detail: QuotationDetailRecord): string {
+  const context = [`Converted from ${detail.quoteNumber}`];
+  if (detail.paymentTermLabel) context.push(detail.paymentTermLabel);
+  if (detail.taxType !== "NON_VAT") {
+    context.push(
+      detail.taxType === "VAT_EXCLUSIVE" ? "VAT Exclusive" : "VAT Inclusive"
+    );
+  }
+  return [context.join(" · "), detail.notes].filter(Boolean).join("\n");
 }
 
 // ——— record → DTO mapping (Decimal/Date never leave the server raw) ———

@@ -2,6 +2,7 @@
 // everything else depends only on interfaces.
 import { PrismaCustomerRepository } from "@/modules/shared/repositories/customer-repository";
 import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activity-log-repository";
+import { PrismaJobOrderRepository } from "@/modules/job-orders/repositories/job-order-repository";
 import { PrismaQuotationRepository } from "../repositories/quotation-repository";
 import { QuotationService } from "./quotation-service";
 
@@ -11,7 +12,9 @@ export function getQuotationService(): QuotationService {
   quotationService ??= new QuotationService(
     new PrismaQuotationRepository(),
     new PrismaCustomerRepository(),
-    new PrismaActivityLogRepository()
+    new PrismaActivityLogRepository(),
+    // JO repo powers quote → JO conversion (numbering + creation).
+    new PrismaJobOrderRepository()
   );
   return quotationService;
 }
