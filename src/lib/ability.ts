@@ -12,9 +12,9 @@ import type { Actor } from "@/lib/authz";
 // (JOWebApp, quotation_system, Sales-Audit) had its own roles/permissions —
 // here they all become rules in ONE ability, grouped by module.
 //
-// Currently only the JO module (JOWebApp) is integrated, so only its rules
-// exist. When the other modules land, add their actions/subjects and a rules
-// section below — do NOT scatter role checks in services again.
+// Integrated so far: JO module (JOWebApp) and Quotation module
+// (quotation_system). When the other modules land, add their actions/subjects
+// and a rules section below — do NOT scatter role checks in services again.
 //
 // Works on both server and client (pure function of the role): services call
 // assertCan(), pages/components call defineAbilityFor(actor).can().
@@ -28,7 +28,9 @@ export type AppAction =
   | "archive"
   | "import"
   | "move-deadline"
-  | "approve" // record the customer's approval (attachment required)
+  | "approve" // JO: record the customer's approval; Quotation: supervisor sign-off
+  | "send" // mark a quotation as sent to the customer
+  | "convert" // turn an approved quotation into a Job Order
   | "maintain";
 
 export type AppSubject =
@@ -38,7 +40,9 @@ export type AppSubject =
   | "JobOrderItem"
   | "Archive" // the admin-only Archive JOs page
   | "Maintenance" // statuses / categories / employees reference lists
-  // ——— TODO(QUOTATION): "Quotation", "PriceList", …
+  // ——— Quotation module (quotation_system) ———
+  | "Quotation"
+  // ——— TODO(QUOTATION-PHASE-4): "PriceList"
   // ——— TODO(SALES-AUDIT): "Sale", "Booklet", "Reconciliation", …
   | never;
 
@@ -48,7 +52,7 @@ export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
   const { can, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
 
   // Every authenticated user can read the JO board/calendar + pickers.
-  can("read", ["JobOrder", "JobOrderItem", "Maintenance"]);
+  can("read", ["JobOrder", "JobOrderItem", "Maintenance", "Quotation"]);
 
   switch (actor.role) {
     case Role.ADMIN:
@@ -61,10 +65,16 @@ export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
       can("import", "JobOrder");
       can("move-deadline", "JobOrder"); // legacy: Admin + Production Planner
       can("maintain", "Maintenance");
+      // Quotation: supervisor sign-off lives here (legacy dashboard denied
+      // Approve/Reject to sales/staff roles).
+      can(["create", "update", "send", "approve", "convert", "archive"], "Quotation");
       break;
     case Role.ENCODER: // ≈ legacy Sales/Cashier submit rights
       can(["create", "update", "approve"], ["JobOrder"]);
       can(["create", "update"], ["JobOrderItem"]);
+      // Quotation: encoders draft/send/convert but cannot approve (the
+      // approve gate is the point of the workflow) nor archive.
+      can(["create", "update", "send", "convert"], "Quotation");
       break;
     case Role.AUDITOR:
     case Role.VIEWER:
