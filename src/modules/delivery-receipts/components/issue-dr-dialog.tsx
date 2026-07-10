@@ -129,14 +129,16 @@ export function IssueDrDialog() {
                     key={g.jobOrderId}
                     type="button"
                     onClick={() => pickJo(g.jobOrderId, g.items)}
-                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left hover:bg-muted/50"
+                    className="grid w-full gap-0.5 rounded-lg border px-3 py-2 text-left hover:bg-muted/50"
                   >
-                    <div className="min-w-0">
-                      <div className="font-medium">{g.joNumber}</div>
-                      <div className="truncate text-xs text-muted-foreground">{g.customerName}</div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="font-medium">{g.joNumber}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {g.items.length} item{g.items.length !== 1 ? "s" : ""} to deliver
+                      </span>
                     </div>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {g.items.length} item{g.items.length !== 1 ? "s" : ""} to deliver
+                    <span className="text-xs wrap-break-word text-muted-foreground">
+                      {g.customerName}
                     </span>
                   </button>
                 ))
@@ -169,8 +171,10 @@ export function IssueDrDialog() {
                   key={item.id}
                   className="flex flex-wrap items-center gap-3 border-b pb-2 last:border-b-0 last:pb-0"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{item.description}</div>
+                  <div className="min-w-40 flex-1">
+                    <div className="text-sm wrap-break-word whitespace-pre-line">
+                      {item.description}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {item.lineItemId} · ordered {item.qty} · delivered {item.qtyDelivered} ·{" "}
                       {peso(item.unitPrice)}/pc
