@@ -59,7 +59,11 @@ const quotationBaseInput = z.object({
   items: z.array(quotationItemInput).min(1, "At least one line item is required."),
 });
 
-export const quotationCreateInput = quotationBaseInput;
+export const quotationCreateInput = quotationBaseInput.extend({
+  // Set when the quote is drafted from an inquiry (/quotations/new?inquiryId=…)
+  // — the service links Inquiry.quotationId in the same transaction.
+  inquiryId: z.string().optional(),
+});
 
 export const quotationUpdateInput = quotationBaseInput.extend({
   id: z.string().min(1),

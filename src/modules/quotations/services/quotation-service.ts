@@ -13,6 +13,7 @@ import type { DbTx } from "@/modules/shared/repositories/types";
 import type { Prisma } from "@/generated/prisma/client";
 import type { IJobOrderRepository } from "@/modules/job-orders/repositories/job-order-repository";
 import { allocateJoNumber } from "@/modules/job-orders/services/job-order-service";
+import type { IInquiryRepository } from "../repositories/inquiry-repository";
 import type {
   IQuotationRepository,
   ItemCreateData,
@@ -83,7 +84,8 @@ export class QuotationService {
     private readonly quotations: IQuotationRepository,
     private readonly customers: ICustomerRepository,
     private readonly activity: IActivityLogRepository,
-    private readonly jobOrders: IJobOrderRepository
+    private readonly jobOrders: IJobOrderRepository,
+    private readonly inquiries: IInquiryRepository
   ) {}
 
   /** One yearly series for ALL products — replaces the 27 per-product
@@ -117,6 +119,17 @@ export class QuotationService {
     const totals = totalsOf(input);
     const items = buildItems(input.items, totals);
 
+    // Validate the inquiry link up front so a stale prefill fails cleanly.
+    if (input.inquiryId) {
+      const inquiry = await this.inquiries.findById(input.inquiryId);
+      if (!inquiry) throw new NotFoundError("Inquiry not found.");
+      if (inquiry.quotationId) {
+        throw new ConflictError(
+          `Inquiry already has quotation ${inquiry.quotation?.quoteNumber ?? ""}.`
+        );
+      }
+    }
+
     return this.quotations.withTransaction(async (tx) => {
       const customer = await this.customers.findOrCreateByName(
         input.customerName,
@@ -142,6 +155,14 @@ export class QuotationService {
         },
         tx
       );
+      if (input.inquiryId) {
+        await this.inquiries.linkQuotation(
+          input.inquiryId,
+          created.id,
+          customer.id,
+          tx
+        );
+      }
       await this.activity.log(
         {
           userId: actor.id,
@@ -152,6 +173,7 @@ export class QuotationService {
             quoteNumber: created.quoteNumber,
             items: items.length,
             total: money(totals.total),
+            ...(input.inquiryId ? { inquiryId: input.inquiryId } : {}),
           },
         },
         tx

@@ -61,23 +61,29 @@ export function QuotationForm({
   mode,
   quotationId,
   initialValues,
+  inquiryId,
 }: {
   mode: "create" | "edit";
   quotationId?: string;
   initialValues?: QuotationCreateInput;
+  /** Set when drafting from an inquiry — the create links Inquiry → quote. */
+  inquiryId?: string;
 }) {
   const router = useRouter();
   const form = useForm<QuotationCreateInput>({
     resolver: zodResolver(quotationCreateInput),
-    defaultValues: initialValues ?? {
-      customerName: "",
-      validUntil: "",
-      taxType: "NON_VAT",
-      paymentTermLabel: "50% Downpayment",
-      downpaymentRate: "0.5",
-      discount: "",
-      notes: "",
-      items: [EMPTY_ITEM],
+    defaultValues: {
+      ...(initialValues ?? {
+        customerName: "",
+        validUntil: "",
+        taxType: "NON_VAT",
+        paymentTermLabel: "50% Downpayment",
+        downpaymentRate: "0.5",
+        discount: "",
+        notes: "",
+        items: [EMPTY_ITEM],
+      }),
+      inquiryId: inquiryId ?? "",
     },
   });
   const items = useFieldArray({ control: form.control, name: "items" });

@@ -44,6 +44,7 @@ export type AppSubject =
   | "Maintenance" // statuses / categories / employees reference lists
   // ——— Quotation module (quotation_system) ———
   | "Quotation"
+  | "Inquiry" // spec 1.2 step 1 — the pre-quote inquiry log
   // ——— TODO(QUOTATION-PHASE-4): "PriceList"
   // ——— DR module ———
   | "DeliveryReceipt"
@@ -62,6 +63,7 @@ export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
     "JobOrderItem",
     "Maintenance",
     "Quotation",
+    "Inquiry",
     "DeliveryReceipt",
   ]);
 
@@ -79,6 +81,7 @@ export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
       // Quotation: supervisor sign-off lives here (legacy dashboard denied
       // Approve/Reject to sales/staff roles).
       can(["create", "update", "send", "approve", "convert", "archive"], "Quotation");
+      can(["create", "update"], "Inquiry");
       can(["issue", "update"], "DeliveryReceipt");
       break;
     case Role.ENCODER: // ≈ legacy Sales/Cashier submit rights
@@ -87,6 +90,7 @@ export function defineAbilityFor(actor: Pick<Actor, "role">): AppAbility {
       // Quotation: encoders draft/send/convert but cannot approve (the
       // approve gate is the point of the workflow) nor archive.
       can(["create", "update", "send", "convert"], "Quotation");
+      can(["create", "update"], "Inquiry");
       can(["issue", "update"], "DeliveryReceipt");
       break;
     case Role.AUDITOR:
