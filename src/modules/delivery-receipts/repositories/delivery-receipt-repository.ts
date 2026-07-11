@@ -27,11 +27,15 @@ const drListSelect = {
   id: true,
   drNumber: true,
   status: true,
+  isFullDelivery: true,
   issuedAt: true,
   jobOrder: { select: { joNumber: true } },
   customer: { select: { name: true } },
   lines: {
-    select: { qty: true, jobOrderItem: { select: { unitPrice: true } } },
+    select: {
+      qty: true,
+      jobOrderItem: { select: { description: true, unitPrice: true } },
+    },
   },
 } satisfies Prisma.DeliveryReceiptSelect;
 
@@ -39,6 +43,7 @@ const drDetailSelect = {
   id: true,
   drNumber: true,
   status: true,
+  isFullDelivery: true,
   issuedAt: true,
   notes: true,
   createdBy: { select: { name: true } },
@@ -51,18 +56,30 @@ const drDetailSelect = {
       id: true,
       qty: true,
       jobOrderItem: {
-        select: {
-          description: true,
-          lineItemId: true,
-          unitPrice: true,
-        },
+        select: { description: true, lineItemId: true, unitPrice: true },
       },
     },
   },
 } satisfies Prisma.DeliveryReceiptSelect;
 
+// Every line item of a JO (done or not) — the universe used to decide whether
+// a DR is a Full or Partial delivery (all items on the DR = Full, subset =
+// Partial) and to drive the edit picker.
+const joItemSelect = {
+  id: true,
+  lineItemId: true,
+  description: true,
+  qty: true,
+  qtyDelivered: true,
+  unitPrice: true,
+  archivedAt: true,
+} satisfies Prisma.JobOrderItemSelect;
+
 export type DeliverableItemRecord = Prisma.JobOrderItemGetPayload<{
   select: typeof deliverableItemSelect;
+}>;
+export type JoItemRecord = Prisma.JobOrderItemGetPayload<{
+  select: typeof joItemSelect;
 }>;
 export type DrListRecord = Prisma.DeliveryReceiptGetPayload<{
   select: typeof drListSelect;
@@ -76,12 +93,20 @@ export type DrCreateData = {
   drNumber: string;
   jobOrderId: string;
   customerId: string;
+  isFullDelivery: boolean;
   notes?: string | null;
   createdById: string;
   lines: DrLineCreate[];
 };
 
 export type DrListFilter = { q?: string; cursor?: string; take: number };
+
+export type DrMetricsRaw = {
+  pendingDeliveries: number;
+  issuedToday: number;
+  issuedThisMonth: number;
+  partialThisMonth: number;
+};
 
 export interface IDeliveryReceiptRepository {
   withTransaction<T>(fn: (tx: DbTx) => Promise<T>): Promise<T>;
@@ -104,10 +129,24 @@ export interface IDeliveryReceiptRepository {
     filter: DrListFilter
   ): Promise<{ rows: DrListRecord[]; nextCursor: string | null }>;
   findDetail(id: string): Promise<DrDetailRecord | null>;
+  getMetrics(): Promise<DrMetricsRaw>;
   getLinesForCancel(
     id: string
   ): Promise<{ status: DeliveryReceiptStatus; lines: DrLineCreate[] } | null>;
   setCancelled(id: string, tx: DbTx): Promise<void>;
+  /** All line items of a JO (done or not), ordered as entered. */
+  listJoItems(jobOrderId: string): Promise<JoItemRecord[]>;
+  findForEdit(id: string): Promise<{
+    status: DeliveryReceiptStatus;
+    jobOrderId: string;
+    lines: DrLineCreate[];
+  } | null>;
+  replaceLines(id: string, lines: DrLineCreate[], tx: DbTx): Promise<void>;
+  setDeliveryState(
+    id: string,
+    data: { isFullDelivery: boolean; notes: string | null },
+    tx: DbTx
+  ): Promise<void>;
 }
 
 export class PrismaDeliveryReceiptRepository
@@ -216,6 +255,53 @@ export class PrismaDeliveryReceiptRepository
     });
   }
 
+  async getMetrics(): Promise<DrMetricsRaw> {
+    const now = new Date();
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    const nextDay = new Date(dayStart.getTime() + 86_400_000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const notCancelled: Prisma.DeliveryReceiptWhereInput = {
+      deletedAt: null,
+      status: DeliveryReceiptStatus.ISSUED,
+    };
+
+    // Pending = distinct JOs with a done item that still has undelivered qty.
+    // Column-to-column compare (qtyDelivered < qty) needs raw SQL.
+    const pendingRows = await prisma.$queryRaw<{ count: number }[]>`
+      SELECT COUNT(DISTINCT ji."jobOrderId")::int AS count
+      FROM "JobOrderItem" ji
+      JOIN "JobOrder" jo ON jo.id = ji."jobOrderId"
+      WHERE ji."archivedAt" IS NOT NULL
+        AND ji."qtyDelivered" < ji."qty"
+        AND jo."deletedAt" IS NULL
+        AND jo."status"::text <> 'CANCELLED'`;
+
+    const [issuedToday, issuedThisMonth, partialThisMonth] = await Promise.all([
+      prisma.deliveryReceipt.count({
+        where: { ...notCancelled, issuedAt: { gte: dayStart, lt: nextDay } },
+      }),
+      prisma.deliveryReceipt.count({
+        where: { ...notCancelled, issuedAt: { gte: monthStart, lt: nextMonth } },
+      }),
+      prisma.deliveryReceipt.count({
+        where: {
+          ...notCancelled,
+          isFullDelivery: false,
+          issuedAt: { gte: monthStart, lt: nextMonth },
+        },
+      }),
+    ]);
+
+    return {
+      pendingDeliveries: pendingRows[0]?.count ?? 0,
+      issuedToday,
+      issuedThisMonth,
+      partialThisMonth,
+    };
+  }
+
   async getLinesForCancel(
     id: string
   ): Promise<{ status: DeliveryReceiptStatus; lines: DrLineCreate[] } | null> {
@@ -234,5 +320,50 @@ export class PrismaDeliveryReceiptRepository
       where: { id },
       data: { status: DeliveryReceiptStatus.CANCELLED },
     });
+  }
+
+  async listJoItems(jobOrderId: string): Promise<JoItemRecord[]> {
+    return prisma.jobOrderItem.findMany({
+      where: { jobOrderId },
+      select: joItemSelect,
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    });
+  }
+
+  async findForEdit(id: string): Promise<{
+    status: DeliveryReceiptStatus;
+    jobOrderId: string;
+    lines: DrLineCreate[];
+  } | null> {
+    const dr = await prisma.deliveryReceipt.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        status: true,
+        jobOrderId: true,
+        lines: { select: { jobOrderItemId: true, qty: true } },
+      },
+    });
+    return dr ?? null;
+  }
+
+  async replaceLines(
+    id: string,
+    lines: DrLineCreate[],
+    tx: DbTx
+  ): Promise<void> {
+    await tx.deliveryReceiptLine.deleteMany({ where: { deliveryReceiptId: id } });
+    if (lines.length > 0) {
+      await tx.deliveryReceiptLine.createMany({
+        data: lines.map((l) => ({ ...l, deliveryReceiptId: id })),
+      });
+    }
+  }
+
+  async setDeliveryState(
+    id: string,
+    data: { isFullDelivery: boolean; notes: string | null },
+    tx: DbTx
+  ): Promise<void> {
+    await tx.deliveryReceipt.update({ where: { id }, data });
   }
 }

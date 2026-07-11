@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Delivery Receipts" };
 export default async function DeliveryReceiptsPage() {
   const ability = defineAbilityFor(await requireActor());
   const canIssue = ability.can("issue", "DeliveryReceipt");
-  const canCancel = ability.can("update", "DeliveryReceipt");
+  const canManage = ability.can("update", "DeliveryReceipt");
 
   return (
     <>
@@ -17,7 +17,7 @@ export default async function DeliveryReceiptsPage() {
         title="Delivery Receipts"
         description="Issue delivery receipts per completed JO line item — partial quantities allowed."
       />
-      <DrView canIssue={canIssue} canCancel={canCancel} />
+      <DrView canIssue={canIssue} canCancel={canManage} canEdit={canManage} />
     </>
   );
 }

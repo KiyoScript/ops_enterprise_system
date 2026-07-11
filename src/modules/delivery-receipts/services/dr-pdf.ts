@@ -139,14 +139,19 @@ export async function renderDrPdf(dr: DrDetailDto): Promise<Uint8Array> {
     y -= 8;
   }
 
-  // ——— delivery type checkboxes ———
-  const checkbox = (x: number, cy: number, label: string) => {
+  // ——— delivery type checkboxes (tick the one that matches this DR) ———
+  const checkbox = (x: number, cy: number, label: string, checked: boolean) => {
     page.drawRectangle({ x, y: cy - 8, width: 11, height: 11, borderColor: LINE, borderWidth: 0.8 });
-    txt(label, x + 16, cy - 6, { size: 9 });
+    if (checked) {
+      // an X mark inside the box
+      page.drawLine({ start: { x: x + 1.5, y: cy - 6.5 }, end: { x: x + 9.5, y: cy + 1.5 }, thickness: 1.4, color: BRAND });
+      page.drawLine({ start: { x: x + 9.5, y: cy - 6.5 }, end: { x: x + 1.5, y: cy + 1.5 }, thickness: 1.4, color: BRAND });
+    }
+    txt(label, x + 16, cy - 6, { size: 9, font: checked ? bold : font });
   };
   const boxesY = Math.max(y, M + 150);
-  checkbox(M, boxesY, "Full Delivery");
-  checkbox(M + 150, boxesY, "Partial Delivery");
+  checkbox(M, boxesY, "Full Delivery", dr.isFullDelivery);
+  checkbox(M + 150, boxesY, "Partial Delivery", !dr.isFullDelivery);
   rightTxt("TOTAL:", PAGE_W - M - 60, boxesY - 6, { size: 10, font: bold });
 
   // ——— signatures ———

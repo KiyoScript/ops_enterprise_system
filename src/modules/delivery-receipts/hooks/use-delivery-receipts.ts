@@ -9,8 +9,18 @@ import { fetchJson } from "@/lib/api-client";
 import type {
   DeliverableJoDto,
   DrDetailDto,
+  DrEditOptionsDto,
   DrListPageDto,
+  DrMetricsDto,
 } from "../schemas/delivery-receipt";
+
+export function useDrMetrics() {
+  return useQuery({
+    queryKey: ["delivery-receipts", "metrics"],
+    queryFn: () => fetchJson<DrMetricsDto>("/api/delivery-receipts/metrics"),
+    staleTime: 30_000,
+  });
+}
 
 export function useDrList(q: string) {
   return useInfiniteQuery({
@@ -50,6 +60,20 @@ export function useDrDetail(id: string | null) {
     queryKey: ["delivery-receipts", "detail", id],
     queryFn: () => fetchJson<DrDetailDto>(`/api/delivery-receipts/${id}`),
     enabled: id !== null,
+  });
+}
+
+/** JO line items as options for editing a DR's coverage. Pass `null` to skip
+ *  (only fetched once the user enters edit mode). */
+export function useDrEditOptions(drId: string | null) {
+  return useQuery({
+    queryKey: ["delivery-receipts", "edit-options", drId],
+    queryFn: () =>
+      fetchJson<DrEditOptionsDto>(
+        `/api/delivery-receipts/${drId}/edit-options`
+      ),
+    enabled: drId !== null,
+    staleTime: 0,
   });
 }
 
