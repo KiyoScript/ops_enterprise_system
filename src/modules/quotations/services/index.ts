@@ -5,11 +5,14 @@ import { PrismaActivityLogRepository } from "@/modules/shared/repositories/activ
 import { PrismaJobOrderRepository } from "@/modules/job-orders/repositories/job-order-repository";
 import { PrismaQuotationRepository } from "../repositories/quotation-repository";
 import { PrismaInquiryRepository } from "../repositories/inquiry-repository";
+import { PrismaPriceListRepository } from "../repositories/price-list-repository";
 import { QuotationService } from "./quotation-service";
 import { InquiryService } from "./inquiry-service";
+import { PriceImportService } from "./price-import-service";
 
 let quotationService: QuotationService | undefined;
 let inquiryService: InquiryService | undefined;
+let priceImportService: PriceImportService | undefined;
 
 export function getQuotationService(): QuotationService {
   quotationService ??= new QuotationService(
@@ -30,4 +33,12 @@ export function getInquiryService(): InquiryService {
     new PrismaActivityLogRepository()
   );
   return inquiryService;
+}
+
+export function getPriceImportService(): PriceImportService {
+  priceImportService ??= new PriceImportService(
+    new PrismaPriceListRepository(),
+    new PrismaActivityLogRepository()
+  );
+  return priceImportService;
 }
