@@ -19,9 +19,13 @@ Customer → Estimate → Job Order → Production → Costing → Delivery → 
 | Paper DR booklet | — (physical BIR form) | Delivery Receipts module | In progress (core dev) |
 | SignQuote / quotation_system | `BeMore/quotation_system` | Quotations module | **Collaborator branch** |
 | Sales-Audit | `BeMore/Sales-Audit` | Sales & Audit module | **Collaborator branch** |
-| **PRISM 2.0** | `BeMore/PRISM---Audit` | LFP Production module (roll/substrate inventory, plotting, print queue, LFP audit) | Planned — **after Sales-Audit** |
-| **MACWebApp** | `MACWebApp` | Inventory & Materials, then Purchasing (PR → PO → Receiving) | Planned — after PRISM |
-| **AssignedTask** | `BeMore/AssignedTask` | JO Task Assignment (per-day employee tasks + Code/PIN portal) | Planned — **after Inventory**; design doc done |
+| **PRISM 2.0** | `BeMore/PRISM---Audit` | LFP Production module (roll/substrate inventory, plotting, print queue, LFP audit) | Planned — **collaborator track, after Sales-Audit** |
+| **MACWebApp** | `MACWebApp` | Inventory & Materials, then Purchasing (PR → PO → Receiving) | Planned — **core dev, next after DR** |
+| **AssignedTask** | `BeMore/AssignedTask` | JO Task Assignment (per-day employee tasks + Code/PIN portal) | Planned — core dev, **after Inventory**; design doc done |
+
+Ownership: **John Lloyd (core dev)** owns the JOWebApp, DR, MACWebApp
+(Inventory + Purchasing), and AssignedTask fusions. **Collaborators** own
+SignQuote (Quotations), Sales-Audit, and PRISM.
 
 PRISM connection: legacy JOWebApp syncs LFP job orders into PRISM's `JobOrders`
 inbox sheet; in Fusion this becomes an internal link — `JobOrderItem.isLFP`
