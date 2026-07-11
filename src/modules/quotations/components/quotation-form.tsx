@@ -31,6 +31,7 @@ import { computeTotals } from "../services/totals";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
 import { useProductOptions } from "@/modules/shared/hooks/use-products";
 import { TarpCalculator } from "./tarp-calculator";
+import { VariantPicker } from "./variant-picker";
 
 // Legacy Payment Terms tab of the price DB (label ↔ downpayment fraction).
 const PAYMENT_TERMS = [
@@ -105,6 +106,23 @@ export function QuotationForm({
     }
     if (!current.description) {
       form.setValue(`items.${index}.description`, product.name);
+    }
+  };
+
+  // Variant pick: price from the qty tier, variant recorded in specs, and
+  // the description prefilled only while it still is the bare product name.
+  const onVariantPick = (index: number, label: string, price: string) => {
+    const current = form.getValues(`items.${index}`);
+    const product = current.productId
+      ? productById.get(current.productId)
+      : undefined;
+    form.setValue(`items.${index}.unitPrice`, price, { shouldValidate: true });
+    form.setValue(`items.${index}.specs`, {
+      ...(current.specs ?? {}),
+      variant: label,
+    });
+    if (product && (!current.description || current.description === product.name)) {
+      form.setValue(`items.${index}.description`, `${product.name} — ${label}`);
     }
   };
 
@@ -383,8 +401,21 @@ export function QuotationForm({
                   <TarpCalculator
                     qty={parseInt(watchedItem?.qty || "1", 10) || 1}
                     defaultRate={parseFloat(product?.basePrice ?? "50") || 50}
+                    rules={product?.rules}
                     initialSpecs={watchedItem?.specs ?? null}
                     onApply={(result) => applyCalculator(index, result)}
+                  />
+                )}
+                {!isTarp && product && (
+                  <VariantPicker
+                    rules={product.rules}
+                    qty={parseInt(watchedItem?.qty || "1", 10) || 1}
+                    currentVariant={
+                      (watchedItem?.specs as { variant?: string } | undefined)
+                        ?.variant ?? null
+                    }
+                    currentUnitPrice={watchedItem?.unitPrice || ""}
+                    onPick={(label, price) => onVariantPick(index, label, price)}
                   />
                 )}
               </div>

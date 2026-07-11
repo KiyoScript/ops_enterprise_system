@@ -2,9 +2,12 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api-client";
-import type { ProductOptionDto } from "@/app/api/products/route";
+import type {
+  ProductOptionDto,
+  ProductRuleDto,
+} from "@/app/api/products/route";
 
-export type { ProductOptionDto };
+export type { ProductOptionDto, ProductRuleDto };
 
 /** Active product catalog, for the quotation line-item picker. */
 export function useProductOptions() {

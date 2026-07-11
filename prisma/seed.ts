@@ -1,8 +1,9 @@
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
-import { Role } from "../src/generated/prisma/enums";
+import { PriceRuleType, Role } from "../src/generated/prisma/enums";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
@@ -70,6 +71,88 @@ const products: {
   { name: "Bookbinding", category: "Printing", unit: "book", basePrice: 430, description: "Hardbound 430 · softbound 150/100 · ring bind 100 · printing per page" },
 ];
 
+// Parametric price rules (legacy get<X>Pricing() defaults, as data), keyed
+// by product name. VARIANT rows sharing a label form qty tiers.
+type RuleSeed = {
+  type: PriceRuleType;
+  label: string;
+  unitPrice?: number;
+  minQty?: number;
+  minCharge?: number;
+  amount?: number;
+  pct?: number;
+  notes?: string;
+};
+
+const priceRules: Record<string, RuleSeed[]> = {
+  Tarpaulin: [
+    { type: "VARIANT", label: "Standard rate", unitPrice: 50 },
+    { type: "ADDON", label: "Rush fee", amount: 150 },
+    { type: "ADDON", label: "Design fee", amount: 250 },
+  ],
+  Mug: [
+    { type: "VARIANT", label: "White Mug", minQty: 5, unitPrice: 180 },
+    { type: "VARIANT", label: "White Mug", minQty: 10, unitPrice: 150 },
+    { type: "VARIANT", label: "White Mug", minQty: 25, unitPrice: 125 },
+    { type: "VARIANT", label: "White Mug", minQty: 50, unitPrice: 100 },
+    { type: "VARIANT", label: "Inner Color Mug", minQty: 5, unitPrice: 190 },
+    { type: "VARIANT", label: "Inner Color Mug", minQty: 10, unitPrice: 160 },
+    { type: "VARIANT", label: "Inner Color Mug", minQty: 25, unitPrice: 140 },
+    { type: "VARIANT", label: "Inner Color Mug", minQty: 50, unitPrice: 130 },
+  ],
+  Frame: [
+    { type: "VARIANT", label: "Without matting", unitPrice: 550 },
+    { type: "VARIANT", label: "With matting", unitPrice: 600 },
+    { type: "ADDON", label: "Rush fee", amount: 150 },
+  ],
+  "ID Printing": [
+    { type: "VARIANT", label: "Rubberized", unitPrice: 85, notes: "Bulk discounts offered" },
+    { type: "VARIANT", label: "PVC", unitPrice: 175, notes: "Small qty, faster printing" },
+    { type: "ADDON", label: "Rush fee", amount: 250, pct: 5, notes: "Legacy: flat 250 or +5%" },
+    { type: "ADDON", label: "Design fee", amount: 250 },
+  ],
+  "Acrylic Display": [
+    { type: "VARIANT", label: "2 MM", unitPrice: 200, minCharge: 200, notes: "Min 1×1 ft" },
+    { type: "VARIANT", label: "3 MM", unitPrice: 225, minCharge: 225, notes: "Min 1×1 ft" },
+  ],
+  "Acrylic Signage": [
+    { type: "VARIANT", label: "Standard", unitPrice: 600, minCharge: 600, notes: "Smaller than 1×1 ft charged as 1×1" },
+  ],
+  "Acrylic Plate Number": [
+    { type: "VARIANT", label: "Motorcycle", unitPrice: 200 },
+    { type: "VARIANT", label: "Car", unitPrice: 400 },
+  ],
+  "Foldable Fan": [
+    { type: "VARIANT", label: "Sublimation", unitPrice: 50 },
+    { type: "VARIANT", label: "DTF", unitPrice: 80 },
+  ],
+  "Calling Card": [
+    { type: "VARIANT", label: "One-side", unitPrice: 300, notes: "Min 50 pcs · mirrorkote" },
+    { type: "VARIANT", label: "Back-to-back", unitPrice: 500, notes: "Min 50 pcs · mirrorkote" },
+  ],
+  Certificate: [
+    { type: "VARIANT", label: "Award Certificate", unitPrice: 30 },
+    { type: "VARIANT", label: "Gift Certificate", unitPrice: 12 },
+  ],
+  Bookbinding: [
+    { type: "VARIANT", label: "Hardbound", unitPrice: 430 },
+    { type: "VARIANT", label: "Softbound with lettering", unitPrice: 150 },
+    { type: "VARIANT", label: "Softbound without lettering", unitPrice: 100 },
+    { type: "VARIANT", label: "Ring bind", unitPrice: 100 },
+    { type: "ADDON", label: "Rush fee", amount: 150 },
+  ],
+  "Life-Size Standee": [
+    { type: "VARIANT", label: "Standard rate", unitPrice: 250 },
+    { type: "ADDON", label: "Rush fee", amount: 150 },
+    { type: "ADDON", label: "Design fee", amount: 250 },
+  ],
+  "Canvas Print": [
+    { type: "VARIANT", label: "Standard rate", unitPrice: 450 },
+    { type: "ADDON", label: "Rush fee", amount: 150 },
+    { type: "ADDON", label: "Design fee", amount: 250 },
+  ],
+};
+
 async function main() {
   for (const u of users) {
     await prisma.user.upsert({
@@ -120,6 +203,47 @@ async function main() {
   console.log(
     `Seeded ${productsCreated} products (${products.length - productsCreated} already existed).`
   );
+
+  // Price rules: skip any product that already has rules — the app (or a
+  // manual edit) owns them after first seed.
+  let rulesCreated = 0;
+  for (const [productName, rules] of Object.entries(priceRules)) {
+    const product = await prisma.product.findFirst({
+      where: { name: { equals: productName, mode: "insensitive" } },
+      select: { id: true, _count: { select: { priceRules: true } } },
+    });
+    if (!product || product._count.priceRules > 0) continue;
+    await prisma.priceRule.createMany({
+      data: rules.map((rule, index) => ({
+        productId: product.id,
+        type: rule.type,
+        label: rule.label,
+        unitPrice: rule.unitPrice,
+        minQty: rule.minQty ?? 1,
+        minCharge: rule.minCharge,
+        amount: rule.amount,
+        pct: rule.pct,
+        notes: rule.notes,
+        sortOrder: index,
+      })),
+    });
+    rulesCreated += rules.length;
+  }
+  console.log(`Seeded ${rulesCreated} price rules.`);
+
+  // System account that owns anonymous portal inquiries (cannot sign in).
+  await prisma.user.upsert({
+    where: { email: "portal@ops.local" },
+    update: {},
+    create: {
+      name: "Customer Portal",
+      email: "portal@ops.local",
+      role: Role.VIEWER,
+      passwordHash: bcrypt.hashSync(randomBytes(24).toString("hex"), 10),
+      isActive: false,
+    },
+  });
+  console.log("Seeded portal system user.");
 }
 
 main()

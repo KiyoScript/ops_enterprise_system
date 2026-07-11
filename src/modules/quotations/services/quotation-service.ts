@@ -13,6 +13,7 @@ import type { DbTx } from "@/modules/shared/repositories/types";
 import type { Prisma } from "@/generated/prisma/client";
 import type { IJobOrderRepository } from "@/modules/job-orders/repositories/job-order-repository";
 import { allocateJoNumber } from "@/modules/job-orders/services/job-order-service";
+import { sendMail, staffNotifyAddress } from "@/lib/mailer";
 import type { IInquiryRepository } from "../repositories/inquiry-repository";
 import type {
   IQuotationRepository,
@@ -314,6 +315,24 @@ export class QuotationService {
         tx
       );
     });
+
+    // Approval heads-up for the supervisors' inbox (legacy notifyQuoteSaved_
+    // parity). Best-effort AFTER commit — mail must never fail the save.
+    if (input.action === "submit") {
+      const to = staffNotifyAddress();
+      if (to) {
+        await sendMail({
+          to,
+          subject: `Quotation ${detail.quoteNumber} awaits approval`,
+          text: [
+            `${detail.quoteNumber} for ${detail.customer.name} was submitted for approval.`,
+            `Total: PHP ${detail.total.toString()}`,
+            ``,
+            `Review it on the Quotations page.`,
+          ].join("\n"),
+        });
+      }
+    }
   }
 
   /** The point of the fusion: an approved (or sent) quotation becomes a

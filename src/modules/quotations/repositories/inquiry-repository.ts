@@ -7,6 +7,7 @@ const rowSelect = {
   id: true,
   customerName: true,
   contactNumber: true,
+  email: true,
   medium: true,
   servicesRequested: true,
   notes: true,
@@ -21,6 +22,7 @@ export type InquiryRecord = Prisma.InquiryGetPayload<{ select: typeof rowSelect 
 export type InquiryWriteData = {
   customerName: string;
   contactNumber?: string | null;
+  email?: string | null;
   medium: InquiryMedium;
   servicesRequested: string;
   notes?: string | null;

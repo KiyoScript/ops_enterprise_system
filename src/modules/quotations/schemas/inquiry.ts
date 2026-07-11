@@ -9,6 +9,7 @@ export const INQUIRY_MEDIUMS = [
   "EMAIL",
   "WALK_IN",
   "CALL",
+  "PORTAL",
 ] as const;
 
 const inquiryFields = z.object({
@@ -18,6 +19,7 @@ const inquiryFields = z.object({
     .min(1, "Customer Name is required.")
     .max(200),
   contactNumber: z.string().trim().max(40).optional(),
+  email: z.string().trim().max(200).optional(),
   medium: z.enum(INQUIRY_MEDIUMS),
   servicesRequested: z
     .string()
@@ -26,6 +28,31 @@ const inquiryFields = z.object({
     .max(500),
   notes: z.string().trim().max(2000).optional(),
 });
+
+// The public quote-request page (anonymous). `website` is a honeypot: bots
+// fill it, humans never see it.
+export const portalRequestInput = z.object({
+  customerName: z.string().trim().min(2, "Please tell us your name.").max(200),
+  contactNumber: z.string().trim().max(40).optional(),
+  email: z
+    .string()
+    .trim()
+    .email("Enter a valid email.")
+    .max(200)
+    .or(z.literal(""))
+    .optional(),
+  servicesRequested: z
+    .string()
+    .trim()
+    .min(3, "Tell us what you need.")
+    .max(500),
+  notes: z.string().trim().max(2000).optional(),
+  // Honeypot must VALIDATE when filled — the handler silently drops it; a
+  // validation error here would tell bots which field tripped them.
+  website: z.string().max(500).optional(),
+});
+
+export type PortalRequestInput = z.infer<typeof portalRequestInput>;
 
 export const inquiryCreateInput = inquiryFields;
 
@@ -50,6 +77,7 @@ export type InquiryRowDto = {
   id: string;
   customerName: string;
   contactNumber: string | null;
+  email: string | null;
   medium: string;
   servicesRequested: string;
   notes: string | null;

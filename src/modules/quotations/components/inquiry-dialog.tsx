@@ -42,6 +42,7 @@ const MEDIUM_OPTIONS = [
   { value: "MESSENGER", label: "Messenger" },
   { value: "CALL", label: "Call" },
   { value: "EMAIL", label: "Email" },
+  { value: "PORTAL", label: "Portal" },
 ] as const;
 
 /** Log-new or edit dialog for one inquiry (legacy spec 1.2 step 1). */
@@ -57,6 +58,7 @@ export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
       ? {
           customerName: inquiry.customerName,
           contactNumber: inquiry.contactNumber ?? "",
+          email: inquiry.email ?? "",
           medium: inquiry.medium as InquiryCreateInput["medium"],
           servicesRequested: inquiry.servicesRequested,
           notes: inquiry.notes ?? "",
@@ -64,6 +66,7 @@ export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
       : {
           customerName: "",
           contactNumber: "",
+          email: "",
           medium: "WALK_IN",
           servicesRequested: "",
           notes: "",
@@ -140,6 +143,13 @@ export function InquiryDialog({ inquiry }: { inquiry?: InquiryRowDto }) {
                 {...form.register("contactNumber")}
               />
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="inq-email">Email</Label>
+              <Input id="inq-email" type="email" {...form.register("email")} />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label>Medium</Label>
               <Controller

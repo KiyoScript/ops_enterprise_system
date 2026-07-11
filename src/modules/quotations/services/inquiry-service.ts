@@ -12,6 +12,7 @@ import type {
   InquiryPageDto,
   InquiryRowDto,
   InquiryUpdateInput,
+  PortalRequestInput,
 } from "../schemas/inquiry";
 
 export class InquiryService {
@@ -39,6 +40,7 @@ export class InquiryService {
     const created = await this.inquiries.create({
       customerName: input.customerName,
       contactNumber: input.contactNumber || null,
+      email: input.email || null,
       medium: input.medium,
       servicesRequested: input.servicesRequested,
       notes: input.notes || null,
@@ -54,6 +56,32 @@ export class InquiryService {
     return created;
   }
 
+  /** Anonymous portal submissions — the ONLY entry that skips assertCan:
+   *  the caller is the public quote-request endpoint, and the record is
+   *  owned by the seeded "Customer Portal" system user. */
+  async createFromPortal(
+    portalUserId: string,
+    input: PortalRequestInput
+  ): Promise<{ id: string }> {
+    const created = await this.inquiries.create({
+      customerName: input.customerName,
+      contactNumber: input.contactNumber || null,
+      email: input.email || null,
+      medium: "PORTAL",
+      servicesRequested: input.servicesRequested,
+      notes: input.notes || null,
+      createdById: portalUserId,
+    });
+    await this.activity.log({
+      userId: portalUserId,
+      entityType: "Inquiry",
+      entityId: created.id,
+      action: "portal-submit",
+      payload: { customerName: input.customerName },
+    });
+    return created;
+  }
+
   async update(actor: Actor, input: InquiryUpdateInput): Promise<void> {
     assertCan(actor, "update", "Inquiry");
     const record = await this.inquiries.findById(input.id);
@@ -61,6 +89,7 @@ export class InquiryService {
     await this.inquiries.update(input.id, {
       customerName: input.customerName,
       contactNumber: input.contactNumber || null,
+      email: input.email || null,
       medium: input.medium,
       servicesRequested: input.servicesRequested,
       notes: input.notes || null,
@@ -80,6 +109,7 @@ function mapRow(record: InquiryRecord): InquiryRowDto {
     id: record.id,
     customerName: record.customerName,
     contactNumber: record.contactNumber,
+    email: record.email,
     medium: record.medium,
     servicesRequested: record.servicesRequested,
     notes: record.notes,

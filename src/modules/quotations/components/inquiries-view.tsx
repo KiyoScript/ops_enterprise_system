@@ -44,6 +44,7 @@ const MEDIUM_BADGES: Record<string, { tone: BadgeTone; label: string }> = {
   MESSENGER: { tone: "blue", label: "Messenger" },
   CALL: { tone: "amber", label: "Call" },
   EMAIL: { tone: "purple", label: "Email" },
+  PORTAL: { tone: "auto", label: "Portal" },
 };
 
 const COLS = 7;
@@ -145,9 +146,11 @@ export function InquiriesView({
                       </TableCell>
                       <TableCell className="max-w-56">
                         <p className="truncate font-medium">{row.customerName}</p>
-                        {row.contactNumber && (
+                        {(row.contactNumber || row.email) && (
                           <p className="truncate text-xs text-muted-foreground">
-                            {row.contactNumber}
+                            {[row.contactNumber, row.email]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </p>
                         )}
                       </TableCell>

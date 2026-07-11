@@ -27,7 +27,8 @@ const UNITS = [
 
 const EYELETS = ["With Eyelets", "No Eyelet"] as const;
 
-// Legacy flat fees (Banner tab defaults).
+// Fallbacks when the Tarpaulin product has no price rules (legacy Banner
+// tab defaults) — normally the seeded PriceRules override these.
 const RUSH_FEE = 150;
 const DESIGN_FEE = 250;
 
@@ -50,6 +51,7 @@ export type TarpSpecs = {
 export function TarpCalculator({
   qty,
   defaultRate,
+  rules,
   initialSpecs,
   onApply,
 }: {
@@ -57,6 +59,13 @@ export function TarpCalculator({
   qty: number;
   /** Rate per sqft prefill (the Tarpaulin product's base price). */
   defaultRate: number;
+  /** Tarpaulin PriceRules: VARIANT rate + rush/design ADDON amounts. */
+  rules?: {
+    type: "VARIANT" | "ADDON";
+    label: string;
+    unitPrice: string | null;
+    amount: string | null;
+  }[];
   /** Round-trips a previously applied calculation when editing. */
   initialSpecs?: Record<string, unknown> | null;
   onApply: (result: {
@@ -65,13 +74,19 @@ export function TarpCalculator({
     specs: TarpSpecs;
   }) => void;
 }) {
+  const ruleRate = rules?.find((r) => r.type === "VARIANT" && r.unitPrice);
+  const ruleAddon = (pattern: RegExp) =>
+    rules?.find((r) => r.type === "ADDON" && pattern.test(r.label) && r.amount);
+  const rushFee = parseFloat(ruleAddon(/rush/i)?.amount ?? "") || RUSH_FEE;
+  const designFee = parseFloat(ruleAddon(/design/i)?.amount ?? "") || DESIGN_FEE;
+  const baseRate =
+    parseFloat(ruleRate?.unitPrice ?? "") || (defaultRate > 0 ? defaultRate : 50);
+
   const saved = (initialSpecs ?? {}) as Partial<TarpSpecs>;
   const [width, setWidth] = useState(saved.width ? String(saved.width) : "");
   const [height, setHeight] = useState(saved.height ? String(saved.height) : "");
   const [unit, setUnit] = useState(saved.unit ?? "ft");
-  const [rate, setRate] = useState(
-    String(saved.ratePerSqft ?? (defaultRate > 0 ? defaultRate : 50))
-  );
+  const [rate, setRate] = useState(String(saved.ratePerSqft ?? baseRate));
   const [eyelet, setEyelet] = useState(saved.eyelet ?? "With Eyelets");
   const [rush, setRush] = useState(saved.rush ?? false);
   const [design, setDesign] = useState(saved.design ?? false);
@@ -83,7 +98,7 @@ export function TarpCalculator({
   const safeQty = qty > 0 ? qty : 1;
   const sqftPerPc = round2(w * toFt * (h * toFt));
   const lineTotal = round2(
-    sqftPerPc * safeQty * r + (rush ? RUSH_FEE : 0) + (design ? DESIGN_FEE : 0)
+    sqftPerPc * safeQty * r + (rush ? rushFee : 0) + (design ? designFee : 0)
   );
   const unitPrice = round2(lineTotal / safeQty);
   const ready = sqftPerPc > 0 && r > 0;
@@ -98,9 +113,9 @@ export function TarpCalculator({
       ratePerSqft: r,
       eyelet,
       rush,
-      rushFee: rush ? RUSH_FEE : 0,
+      rushFee: rush ? rushFee : 0,
       design,
-      designFee: design ? DESIGN_FEE : 0,
+      designFee: design ? designFee : 0,
     };
     const parts = [
       `Tarpaulin ${w} × ${h} ${unit} (${sqftPerPc.toFixed(2)} sqft/pc)`,
@@ -188,7 +203,7 @@ export function TarpCalculator({
             checked={rush}
             onChange={(e) => setRush(e.target.checked)}
           />
-          Rush (+₱{RUSH_FEE})
+          Rush (+₱{rushFee})
         </label>
         <label className="flex items-center gap-1.5">
           <input
@@ -196,7 +211,7 @@ export function TarpCalculator({
             checked={design}
             onChange={(e) => setDesign(e.target.checked)}
           />
-          Design fee (+₱{DESIGN_FEE})
+          Design fee (+₱{designFee})
         </label>
         <span className="ml-auto tabular-nums text-muted-foreground">
           {sqftPerPc.toFixed(2)} sqft/pc × {safeQty} pc
