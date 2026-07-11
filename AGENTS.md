@@ -27,6 +27,12 @@ PRISM connection: legacy JOWebApp syncs LFP job orders into PRISM's `JobOrders`
 inbox sheet; in Fusion this becomes an internal link — `JobOrderItem.isLFP`
 items feed the LFP Production module.
 
+Accounts Payable connection: the Purchasing chain (PR → PO → Receiving) ends
+in supplier invoices / payables — **AP is the bridge between the PO workflow
+and Sales-Audit**. Supplier invoices reference POs and receiving records and
+may link to JOs; payment posting and reconciliation live on the Sales-Audit
+side. Design Purchasing and Sales-Audit with this seam in mind.
+
 ## Non-negotiable rules
 
 - **Legacy behavior 1:1** — "nothing less, nothing more." Reverse-engineer the
