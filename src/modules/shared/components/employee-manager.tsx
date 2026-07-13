@@ -7,8 +7,12 @@ import { toast } from "sonner";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  CheckIcon,
+  PencilIcon,
   PlusIcon,
+  Trash2Icon,
   UploadIcon,
+  XIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ColorBadge } from "@/components/color-badge";
@@ -25,6 +29,7 @@ import { EmptyState } from "@/components/data-states";
 import { fetchJson } from "@/lib/api-client";
 import {
   createEmployeeAction,
+  deleteEmployeeAction,
   updateEmployeeAction,
 } from "@/app/(app)/maintenance/job-orders/actions";
 import type {
@@ -38,6 +43,8 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({ code: "", name: "", team: "", email: "" });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ code: "", name: "", team: "", email: "" });
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
@@ -68,6 +75,59 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
       }
       toast.success(`Added ${result.data.code} — ${result.data.name}.`);
       setForm({ code: "", name: "", team: "", email: "" });
+      refresh();
+    });
+  };
+
+  const startEdit = (item: EmployeeDto) => {
+    setEditingId(item.id);
+    setEditForm({
+      code: item.code,
+      name: item.name,
+      team: item.team ?? "",
+      email: item.email ?? "",
+    });
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    if (!editForm.code.trim() || !editForm.name.trim()) {
+      toast.error("Employee code and name are required.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await updateEmployeeAction({
+        id: editingId,
+        code: editForm.code.trim(),
+        name: editForm.name.trim(),
+        team: editForm.team.trim(),
+        email: editForm.email.trim(),
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`Saved ${editForm.code.trim()}.`);
+      setEditingId(null);
+      refresh();
+    });
+  };
+
+  const removeItem = (item: EmployeeDto) => {
+    if (
+      !window.confirm(
+        `Delete ${item.code} — ${item.name} permanently? JO assignments keep the code as text — only the master entry is removed.`
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const result = await deleteEmployeeAction({ id: item.id });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${item.code} deleted.`);
       refresh();
     });
   };
@@ -193,24 +253,90 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
                 key={item.id}
                 className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
               >
-                <span className="font-mono text-xs">{item.code}</span>
-                <span>{item.name}</span>
-                {item.team && <ColorBadge label={item.team} />}
-                {item.email && (
-                  <span className="text-xs text-muted-foreground">
-                    {item.email}
-                  </span>
+                {editingId === item.id ? (
+                  <>
+                    <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_1.5fr_1fr_1.5fr]">
+                      <Input
+                        value={editForm.code}
+                        onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}
+                        className="h-8 font-mono text-xs"
+                        aria-label="Edit employee code"
+                        autoFocus
+                      />
+                      <Input
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        className="h-8"
+                        aria-label="Edit employee name"
+                      />
+                      <Input
+                        value={editForm.team}
+                        onChange={(e) => setEditForm({ ...editForm, team: e.target.value })}
+                        placeholder="Team"
+                        className="h-8"
+                        aria-label="Edit team"
+                      />
+                      <Input
+                        value={editForm.email}
+                        onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                        placeholder="Email"
+                        className="h-8"
+                        aria-label="Edit email"
+                      />
+                    </div>
+                    <span className="flex gap-1">
+                      <Button size="xs" onClick={saveEdit} disabled={pending}>
+                        <CheckIcon /> Save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setEditingId(null)}
+                        disabled={pending}
+                      >
+                        <XIcon /> Cancel
+                      </Button>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-mono text-xs">{item.code}</span>
+                    <span className="wrap-break-word">{item.name}</span>
+                    {item.team && <ColorBadge label={item.team} />}
+                    {item.email && (
+                      <span className="text-xs text-muted-foreground wrap-break-word">
+                        {item.email}
+                      </span>
+                    )}
+                    <span className="ml-auto flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => startEdit(item)}
+                        disabled={pending}
+                      >
+                        <PencilIcon /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setArchivedState(item, true)}
+                        disabled={pending}
+                      >
+                        <ArchiveIcon /> Archive
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => removeItem(item)}
+                        disabled={pending}
+                      >
+                        <Trash2Icon /> Delete
+                      </Button>
+                    </span>
+                  </>
                 )}
-                <span className="ml-auto">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => setArchivedState(item, true)}
-                    disabled={pending}
-                  >
-                    <ArchiveIcon /> Archive
-                  </Button>
-                </span>
               </li>
             ))}
           </ul>
@@ -228,9 +354,9 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
                   className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm text-muted-foreground"
                 >
                   <span className="font-mono text-xs">{item.code}</span>
-                  <span>{item.name}</span>
+                  <span className="wrap-break-word">{item.name}</span>
                   {item.team && <Badge variant="ghost">{item.team}</Badge>}
-                  <span className="ml-auto">
+                  <span className="ml-auto flex gap-1">
                     <Button
                       variant="ghost"
                       size="xs"
@@ -238,6 +364,15 @@ export function EmployeeManager({ items }: { items: EmployeeDto[] }) {
                       disabled={pending}
                     >
                       <ArchiveRestoreIcon /> Restore
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => removeItem(item)}
+                      disabled={pending}
+                    >
+                      <Trash2Icon /> Delete
                     </Button>
                   </span>
                 </li>

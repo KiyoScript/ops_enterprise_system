@@ -4,7 +4,16 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArchiveIcon, ArchiveRestoreIcon, PlusIcon, UploadIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  CheckIcon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+  UploadIcon,
+  XIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +28,7 @@ import { EmptyState } from "@/components/data-states";
 import { fetchJson } from "@/lib/api-client";
 import {
   createLookupAction,
+  deleteLookupAction,
   updateLookupAction,
 } from "@/app/(app)/maintenance/job-orders/actions";
 import type {
@@ -27,9 +37,9 @@ import type {
   LookupTypeInput,
 } from "../schemas/lookup";
 
-/** One maintained list (legacy DatabaseLink sheet equivalent). Entries are
- *  never hard-deleted: Archive hides them from pickers, Restore brings them
- *  back — history on job orders is untouched either way. */
+/** One maintained list (legacy DatabaseLink sheet equivalent). Full CRUD:
+ *  add, rename (edit), archive/restore, and delete. JO history is safe either
+ *  way — items store the label as plain text, not a reference. */
 export function LookupManager({
   type,
   title,
@@ -50,6 +60,9 @@ export function LookupManager({
   const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
   const [isLFP, setIsLFP] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editLFP, setEditLFP] = useState(false);
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
@@ -80,6 +93,53 @@ export function LookupManager({
       toast.success(`Added "${result.data.label}".`);
       setLabel("");
       setIsLFP(false);
+      refresh();
+    });
+  };
+
+  const startEdit = (item: LookupDto) => {
+    setEditingId(item.id);
+    setEditLabel(item.label);
+    setEditLFP(item.isLFP);
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    if (!editLabel.trim()) {
+      toast.error("The value can't be empty.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await updateLookupAction({
+        id: editingId,
+        label: editLabel.trim(),
+        isLFP: withLFP ? editLFP : undefined,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`Saved "${editLabel.trim()}".`);
+      setEditingId(null);
+      refresh();
+    });
+  };
+
+  const removeItem = (item: LookupDto) => {
+    if (
+      !window.confirm(
+        `Delete "${item.label}" permanently? Existing job orders keep their text — only the dropdown option is removed.`
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const result = await deleteLookupAction({ id: item.id });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`"${item.label}" deleted.`);
       refresh();
     });
   };
@@ -203,20 +263,82 @@ export function LookupManager({
             {active.map((item) => (
               <li
                 key={item.id}
-                className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
+                className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
               >
-                <span>{item.label}</span>
-                {withLFP && item.isLFP && <Badge variant="outline">LFP</Badge>}
-                <span className="ml-auto">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => setArchived(item, true)}
-                    disabled={pending}
-                  >
-                    <ArchiveIcon /> Archive
-                  </Button>
-                </span>
+                {editingId === item.id ? (
+                  <>
+                    <Input
+                      value={editLabel}
+                      onChange={(e) => setEditLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          saveEdit();
+                        }
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      className="h-8 max-w-72"
+                      autoFocus
+                      aria-label={`Edit ${item.label}`}
+                    />
+                    {withLFP && (
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          checked={editLFP}
+                          onChange={(e) => setEditLFP(e.target.checked)}
+                        />
+                        LFP
+                      </label>
+                    )}
+                    <span className="ml-auto flex gap-1">
+                      <Button size="xs" onClick={saveEdit} disabled={pending}>
+                        <CheckIcon /> Save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setEditingId(null)}
+                        disabled={pending}
+                      >
+                        <XIcon /> Cancel
+                      </Button>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="wrap-break-word">{item.label}</span>
+                    {withLFP && item.isLFP && <Badge variant="outline">LFP</Badge>}
+                    <span className="ml-auto flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => startEdit(item)}
+                        disabled={pending}
+                      >
+                        <PencilIcon /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setArchived(item, true)}
+                        disabled={pending}
+                      >
+                        <ArchiveIcon /> Archive
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => removeItem(item)}
+                        disabled={pending}
+                      >
+                        <Trash2Icon /> Delete
+                      </Button>
+                    </span>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -233,9 +355,9 @@ export function LookupManager({
                   key={item.id}
                   className="flex items-center gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm text-muted-foreground"
                 >
-                  <span>{item.label}</span>
+                  <span className="wrap-break-word">{item.label}</span>
                   {withLFP && item.isLFP && <Badge variant="ghost">LFP</Badge>}
-                  <span className="ml-auto">
+                  <span className="ml-auto flex gap-1">
                     <Button
                       variant="ghost"
                       size="xs"
@@ -243,6 +365,15 @@ export function LookupManager({
                       disabled={pending}
                     >
                       <ArchiveRestoreIcon /> Restore
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => removeItem(item)}
+                      disabled={pending}
+                    >
+                      <Trash2Icon /> Delete
                     </Button>
                   </span>
                 </li>
