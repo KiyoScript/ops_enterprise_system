@@ -166,7 +166,9 @@ function parseKeychains(rows: Rows): ParsedProduct[] {
   let sort = 0;
   for (let r = headerRow + 1; r < rows.length; r++) {
     const size = cell(rows, r, 0).replace(/★/g, "").trim();
-    if (!size) continue;
+    // Only real size rows (e.g. 2×2", 3x4") — skip note/legend rows that
+    // carry a stray peso value in the price columns.
+    if (!/^\d+\s*[×x]\s*\d+/.test(size)) continue;
     const std = stdCol >= 0 ? money(cell(rows, r, stdCol)) : null;
     const die = dieCol >= 0 ? money(cell(rows, r, dieCol)) : null;
     if (std !== null) rules.push(variant(`${size} — Standard`, std, sort++));
