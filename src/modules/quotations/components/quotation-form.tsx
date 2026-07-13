@@ -32,6 +32,7 @@ import { CustomerCombobox } from "@/modules/job-orders/components/customer-combo
 import { useProductOptions } from "@/modules/shared/hooks/use-products";
 import { TarpCalculator } from "./tarp-calculator";
 import { VariantPicker } from "./variant-picker";
+import { ProductCombobox } from "./product-combobox";
 
 // Legacy Payment Terms tab of the price DB (label ↔ downpayment fraction).
 const PAYMENT_TERMS = [
@@ -54,9 +55,6 @@ const EMPTY_ITEM: QuotationCreateInput["items"][number] = {
   unitPrice: "",
   discount: "",
 };
-
-// Select components reject empty values — sentinel for "no catalog product".
-const CUSTOM_ITEM = "custom";
 
 export function QuotationForm({
   mode,
@@ -303,37 +301,18 @@ export function QuotationForm({
               return (
               <div key={field.id} className="grid gap-3 rounded-lg border p-3">
                 <div className="grid gap-1 sm:max-w-96">
-                  <Label>Product</Label>
+                  <Label htmlFor={`item-product-${index}`}>Product</Label>
                   <Controller
                     control={form.control}
                     name={`items.${index}.productId`}
                     render={({ field: pf }) => (
-                      <Select
-                        value={pf.value || CUSTOM_ITEM}
-                        onValueChange={(value) =>
-                          onProductChange(
-                            index,
-                            !value || value === CUSTOM_ITEM ? "" : value
-                          )
-                        }
-                      >
-                        <SelectTrigger aria-label="Product">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={CUSTOM_ITEM}>
-                            Custom item / service
-                          </SelectItem>
-                          {(products.data ?? []).map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name}
-                              {parseFloat(p.basePrice) > 0
-                                ? ` — ₱${p.basePrice}/${p.unit}`
-                                : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <ProductCombobox
+                        id={`item-product-${index}`}
+                        products={products.data ?? []}
+                        value={pf.value ?? ""}
+                        productName={product?.name ?? null}
+                        onPick={(productId) => onProductChange(index, productId)}
+                      />
                     )}
                   />
                 </div>
