@@ -276,7 +276,7 @@
           </div>
           <div class="ent hub">
             <div class="name">JobOrderItem</div>
-            <ul><li>jobOrderId<span class="k fk">FK</span></li><li>qty · qtyDelivered (Int)</li><li>productionStatus · archivedAt</li><li>isLFP → PRISM (later)</li></ul>
+            <ul><li>jobOrderId<span class="k fk">FK</span></li><li>qty · qtyDelivered (Int)</li><li><b>fromQuote</b> (locks description)</li><li>productionStatus · archivedAt</li><li>isLFP → PRISM (later)</li></ul>
           </div>
           <div class="ent">
             <div class="name">DeliveryReceipt + Line</div>
@@ -387,6 +387,7 @@ Table JobOrderItem {
   jobOrderId varchar [ref: > JobOrder.id]
   productId varchar [ref: > Product.id] // nullable — legacy free text
   description varchar
+  fromQuote boolean // true = copied from quote → description locked (non-editable)
   qty int
   unitPrice "decimal(12,2)"
   lineTotal "decimal(12,2)"
