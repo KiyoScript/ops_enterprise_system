@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/authz";
 import { defineAbilityFor } from "@/lib/ability";
 import { PageHeader } from "@/components/page-header";
-import { PriceListView } from "@/modules/quotations/components/price-list-view";
+import { PriceListWorkbench } from "@/modules/quotations/components/price-list-workbench";
 
 export const metadata: Metadata = { title: "Quotation Maintenance" };
 
@@ -16,9 +16,9 @@ export default async function QuotationMaintenancePage() {
     <>
       <PageHeader
         title="Quotation Maintenance"
-        description="The price database behind the quote form — the new home of the legacy SignQuote price spreadsheet. Import the sheet to refresh products, variants, tiers, and add-on fees."
+        description="The price database behind the quote form — one tab per product, like the SignQuote spreadsheet. Edit prices inline and Save, or import the whole workbook."
       />
-      <PriceListView canMaintain={ability.can("maintain", "Maintenance")} />
+      <PriceListWorkbench canMaintain={ability.can("maintain", "Maintenance")} />
     </>
   );
 }
