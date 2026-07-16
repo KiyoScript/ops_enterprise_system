@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { todayISO } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -237,11 +238,21 @@ export function JobOrderForm({
           </div>
           <div className="grid gap-2">
             <Label htmlFor="planDateStart">Plan start</Label>
-            <Input id="planDateStart" type="date" {...form.register("planDateStart")} />
+            <Input
+              id="planDateStart"
+              type="date"
+              min={mode === "create" ? todayISO() : undefined}
+              {...form.register("planDateStart")}
+            />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="planDateEnd">Plan end</Label>
-            <Input id="planDateEnd" type="date" {...form.register("planDateEnd")} />
+            <Input
+              id="planDateEnd"
+              type="date"
+              min={mode === "create" ? todayISO() : undefined}
+              {...form.register("planDateEnd")}
+            />
           </div>
           <div className="grid gap-2 sm:col-span-2">
             <Label htmlFor="notes">Notes</Label>
@@ -325,6 +336,7 @@ export function JobOrderForm({
                   <Input
                     id={`item-deadline-${index}`}
                     type="date"
+                    min={mode === "create" ? todayISO() : undefined}
                     {...form.register(`items.${index}.deadline`)}
                   />
                 </div>

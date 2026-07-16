@@ -2,7 +2,11 @@
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ContactField, isValidPhContact } from "@/components/validated-fields";
+import {
+  ContactField,
+  isValidPhContact,
+  todayISO,
+} from "@/components/validated-fields";
 import { CustomerCombobox } from "@/modules/job-orders/components/customer-combobox";
 
 // Step 1 for every product wizard (legacy CLIENT INFO): name, contact,
@@ -86,6 +90,7 @@ export function ClientInfoStep({
         <Input
           id="ci-date"
           type="date"
+          min={todayISO()}
           value={value.dateNeeded}
           onChange={(e) => set({ dateNeeded: e.target.value })}
         />

@@ -93,3 +93,12 @@ export function ContactField({
 export function isValidPhContact(value: string): boolean {
   return /^09\d{9}$/.test(value.replace(/\D/g, ""));
 }
+
+/** Today as "yyyy-MM-dd" (local) — use as the `min` on forward-looking
+ *  date inputs (deadlines, date needed, valid-until) so past dates can't
+ *  be picked. */
+export function todayISO(): string {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10);
+}

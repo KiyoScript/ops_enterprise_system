@@ -8,6 +8,7 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { todayISO } from "@/components/validated-fields";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -242,7 +243,12 @@ export function QuotationForm({
 
           <div className="grid gap-2">
             <Label htmlFor="valid-until">Valid until</Label>
-            <Input id="valid-until" type="date" {...form.register("validUntil")} />
+            <Input
+              id="valid-until"
+              type="date"
+              min={todayISO()}
+              {...form.register("validUntil")}
+            />
             <p className="text-xs text-muted-foreground">
               Leave blank for no expiry.
             </p>

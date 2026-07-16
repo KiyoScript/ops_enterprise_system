@@ -12,6 +12,21 @@ const dateString = z
   .or(z.literal(""))
   .optional();
 
+// Today's local date as yyyy-MM-dd — the floor for forward-looking dates.
+const todayStr = (): string => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10);
+};
+
+// Like dateString but rejects dates already in the past (a quote can't be
+// valid until a day that already passed). Blank = no expiry, still allowed.
+const futureDateString = dateString.refine(
+  (v) => !v || v >= todayStr(),
+  "Date can't be in the past."
+);
+
 const qtyString = z
   .string()
   .trim()
@@ -58,7 +73,7 @@ const quotationBaseInput = z
       .trim()
       .min(1, "Customer Name is required.")
       .max(200),
-    validUntil: dateString,
+    validUntil: futureDateString,
     taxType: z.enum(TAX_TYPES),
     paymentTermLabel: z.string().trim().max(120).optional(),
     downpaymentRate: rateString,
