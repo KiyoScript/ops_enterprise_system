@@ -23,8 +23,8 @@ export function ItemStepsChecklist({
   if (!steps || steps.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No production steps — set a workflow for this product in Quotation
-        Maintenance.
+        No production steps — set this product&apos;s workflow in JO
+        Maintenance → Production workflows.
       </p>
     );
   }

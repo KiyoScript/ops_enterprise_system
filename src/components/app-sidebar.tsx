@@ -3,9 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Archive,
   Building2,
-  CalendarDays,
   ChevronsUpDown,
   ClipboardList,
   FileText,
@@ -30,6 +28,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
@@ -49,14 +50,25 @@ import {
 } from "@/lib/ability";
 import type { Role } from "@/generated/prisma/enums";
 
-type NavItem = {
+type NavChild = {
   title: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
   /** Only shown when the user's ability allows this action/subject. */
   requires?: [AppAction, AppSubject];
 };
 
+type NavItem = {
+  title: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  requires?: [AppAction, AppSubject];
+  /** Indented sub-pages of this destination (no icons — quieter scan). */
+  children?: NavChild[];
+};
+
+// IA: groups follow the shop's workflow — sell (Sales) → make & deliver
+// (Operations) → the records both sides share (Masters) — with role-gated
+// admin areas (Maintenance, System) kept at the bottom, out of daily scan.
 const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Overview",
@@ -73,11 +85,19 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Operations",
     items: [
-      { title: "Job Orders", href: "/job-orders", icon: ClipboardList },
-      { title: "JO Calendar", href: "/job-orders/calendar", icon: CalendarDays },
-      { title: "JO Reports", href: "/job-orders/reports", icon: FileText },
-      // Legacy rule: the archive is admin-only
-      { title: "Archive JOs", href: "/job-orders/archive", icon: Archive, requires: ["read", "Archive"] },
+      {
+        title: "Job Orders",
+        href: "/job-orders",
+        icon: ClipboardList,
+        // Sub-views of the JO board — the parent gives the context, so the
+        // labels stay short (no "JO" prefix noise).
+        children: [
+          { title: "Calendar", href: "/job-orders/calendar" },
+          { title: "Reports", href: "/job-orders/reports" },
+          // Legacy rule: the archive is admin-only
+          { title: "Archive", href: "/job-orders/archive", requires: ["read", "Archive"] },
+        ],
+      },
       { title: "Delivery Receipts", href: "/delivery-receipts", icon: Truck },
     ],
   },
@@ -93,9 +113,11 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       // One maintenance section per system — every legacy system has its own
       // reference lists (later: PRISM, Inventory, Task Assignment, …).
-      { title: "JO Maintenance", href: "/maintenance/job-orders", icon: Wrench },
-      { title: "Quotation Maintenance", href: "/maintenance/quotations", icon: Wrench },
-      { title: "Sales Audit Maintenance", href: "/maintenance/sales-audit", icon: Wrench },
+      // Gated: only roles that can actually maintain see these entries —
+      // never show a door the user can't open.
+      { title: "JO Maintenance", href: "/maintenance/job-orders", icon: Wrench, requires: ["maintain", "Maintenance"] },
+      { title: "Quotation Maintenance", href: "/maintenance/quotations", icon: Wrench, requires: ["maintain", "Maintenance"] },
+      { title: "Sales Audit Maintenance", href: "/maintenance/sales-audit", icon: Wrench, requires: ["maintain", "Maintenance"] },
     ],
   },
   {
@@ -116,7 +138,9 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
 
   // Highlight only the most specific match (e.g. /job-orders/calendar must
   // not also light up /job-orders).
-  const allHrefs = navGroups.flatMap((g) => g.items.map((i) => i.href));
+  const allHrefs = navGroups.flatMap((g) =>
+    g.items.flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])])
+  );
   const matches = (href: string) =>
     href === "/"
       ? pathname === "/"
@@ -152,29 +176,55 @@ export function AppSidebar({ user }: { user: SidebarUser }) {
       </SidebarHeader>
 
       <SidebarContent>
-        {navGroups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {group.items
-                  .filter((item) => !item.requires || ability.can(...item.requires))
-                  .map((item) => (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      isActive={isActiveHref(item.href)}
-                      tooltip={item.title}
-                      render={<Link href={item.href} />}
-                    >
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+        {navGroups.map((group) => {
+          const visibleItems = group.items.filter(
+            (item) => !item.requires || ability.can(...item.requires)
+          );
+          // A group with nothing the user can open never renders — no empty
+          // headings, no doors that bounce.
+          if (visibleItems.length === 0) return null;
+          return (
+            <SidebarGroup key={group.label}>
+              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {visibleItems.map((item) => {
+                    const visibleChildren = (item.children ?? []).filter(
+                      (child) =>
+                        !child.requires || ability.can(...child.requires)
+                    );
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          isActive={isActiveHref(item.href)}
+                          tooltip={item.title}
+                          render={<Link href={item.href} />}
+                        >
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </SidebarMenuButton>
+                        {visibleChildren.length > 0 && (
+                          <SidebarMenuSub>
+                            {visibleChildren.map((child) => (
+                              <SidebarMenuSubItem key={child.href}>
+                                <SidebarMenuSubButton
+                                  isActive={isActiveHref(child.href)}
+                                  render={<Link href={child.href} />}
+                                >
+                                  <span>{child.title}</span>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ))}
+                          </SidebarMenuSub>
+                        )}
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          );
+        })}
       </SidebarContent>
 
       <SidebarFooter>

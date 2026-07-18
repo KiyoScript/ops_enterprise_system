@@ -7,6 +7,7 @@ import { getEmployeeService } from "@/modules/shared/services/employee-service";
 import { PageHeader } from "@/components/page-header";
 import { LookupManager } from "@/modules/shared/components/lookup-manager";
 import { EmployeeManager } from "@/modules/shared/components/employee-manager";
+import { ProductionWorkflowsCard } from "@/modules/job-orders/components/production-workflows-card";
 
 export const metadata: Metadata = { title: "JO Maintenance" };
 
@@ -47,6 +48,7 @@ export default async function JoMaintenancePage() {
             hint: "Or import the OPSServices sheet (.xlsx or .csv):",
           }}
         />
+        <ProductionWorkflowsCard />
         <EmployeeManager items={employees} />
       </div>
     </>
