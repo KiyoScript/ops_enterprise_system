@@ -414,23 +414,38 @@ function parseNewspaperMaintenance(rows: Rows): ParsedProduct[] {
 
   const products: ParsedProduct[] = [];
   for (const b of blocks) {
-    const col = (re: RegExp): number => {
+    const col = (re: RegExp, last = false): number => {
+      let found = -1;
       for (let c = b.start; c < b.end; c++) {
-        if (re.test(String(headers[c] ?? ""))) return c;
+        if (re.test(String(headers[c] ?? ""))) {
+          found = c;
+          if (!last) break;
+        }
       }
-      return -1;
+      return found;
     };
     const cPages = col(/total pages|# of pages$/i);
     const cCopies = col(/copies/i);
     const cColor = col(/colored|full color/i);
-    const cRate = col(/new rate/i) >= 0 ? col(/new rate/i) : col(/rate/i);
-    if (cPages < 0 || cCopies < 0 || cRate < 0) continue;
+    // When a block carries a base + final rate pair (SLT's "No VAT"/"New
+    // Rate", Bandilyo's two "New Rate" columns), the FINAL rate is the
+    // rightmost rate-titled column.
+    const cRate =
+      col(/new rate/i, true) >= 0 ? col(/new rate/i, true) : col(/rate/i, true);
+    if (cPages < 0 || cCopies < 0) continue;
+    // Bandilyo/Krusada list run configs but their rate column was never
+    // filled in — import them anyway at ₱0 so the client exists in
+    // Maintenance and the real rates can be typed inline later.
+    const priced = cRate >= 0;
 
     const rules: RuleCreateData[] = [];
     for (let r = 2; r < rows.length; r++) {
+      // each block's own "Materials Estimate" section (paper requisitions,
+      // not customer pricing) starts below this marker — stop there.
+      if (/materials estimate/i.test(cell(rows, r, b.start))) break;
       const pages = parseInt(cell(rows, r, cPages), 10);
       const copies = parseInt(cell(rows, r, cCopies), 10);
-      const price = money(cell(rows, r, cRate));
+      const price = priced ? money(cell(rows, r, cRate)) : 0;
       if (!Number.isFinite(pages) || !Number.isFinite(copies) || price === null)
         continue;
       const color = parseInt(cell(rows, r, cColor), 10);
@@ -449,7 +464,9 @@ function parseNewspaperMaintenance(rows: Rows): ParsedProduct[] {
         name: `Newspaper — ${b.name}`,
         category: "Printing",
         unit: "run",
-        description: `${b.name} contract rates — price is for the whole print run`,
+        description: priced
+          ? `${b.name} contract rates — price is for the whole print run`
+          : `${b.name} run configs — rates not in the sheet yet, fill them in here (₱0 = pending)`,
         rules,
       });
     }
