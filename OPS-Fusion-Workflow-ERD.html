@@ -360,7 +360,7 @@ Table QuotationItem {
 Table Product { id varchar [pk] name varchar category varchar }
 Table PriceRule {
   id varchar [pk]
-  productId varchar [ref: > Product.id, null] // NULL = GLOBAL add-on (applies to every product; product-level label overrides)
+  productId varchar [ref: > Product.id, null] // NULL = GLOBAL add-on — applies to every product and OVERRIDES same-fee product add-ons
   type varchar // VARIANT | ADDON
   label varchar
   unitPrice "decimal(12,2)" // VARIANT: price per product.unit

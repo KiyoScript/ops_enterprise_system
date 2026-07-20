@@ -5,8 +5,8 @@ import { prisma } from "@/lib/prisma";
 import type { ProductRuleDto } from "../route";
 
 // GET /api/products/global-addons — the common add-on fees (rush, design,
-// delivery…) offered on EVERY product; a product-level add-on with the same
-// label overrides its global counterpart.
+// delivery…) offered on EVERY product; once saved they override same-fee
+// product-level add-ons in the quote wizards (see resolveWizardProduct).
 export async function GET() {
   try {
     await requireActor();

@@ -299,8 +299,9 @@ function RemoveAllProductsButton({ count }: { count: number }) {
 }
 
 // Common add-ons — fees offered on EVERY product (rush, design, delivery…).
-// A product-level add-on with the same label overrides the global one. One
-// value field + a Fixed/Percentage picker (maps to amount vs pct on save).
+// Saving here applies them to all quote flows, overriding same-fee
+// product-level add-ons ("Rush Fee" replaces a product's "Rush"). One value
+// field + a Fixed/Percentage picker (maps to amount vs pct on save).
 type AddonRow = {
   label: string;
   mode: "FIXED" | "PCT";
@@ -357,8 +358,10 @@ function GlobalAddonsSheet({
           <div>
             <h2 className="text-lg font-semibold">Common add-ons</h2>
             <p className="text-xs text-muted-foreground">
-              Offered on every product — a product&apos;s own add-on with the
-              same label overrides these.
+              Once saved, these apply to every product&apos;s quote — and
+              override a product&apos;s own add-on of the same fee (e.g. a
+              global &quot;Rush Fee&quot; replaces a product&apos;s
+              &quot;Rush&quot;).
             </p>
           </div>
           {canMaintain && (

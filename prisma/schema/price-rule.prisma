@@ -17,7 +17,8 @@ enum PriceRuleType {
 model PriceRule {
   id        String        @id @default(cuid())
   // NULL productId = a GLOBAL add-on (rush/design/delivery…), offered on
-  // every product; a product-level ADDON with the same label overrides it.
+  // every product; it OVERRIDES a product-level ADDON of the same fee
+  // (matched by normalized name, so "Rush" == "Rush Fee").
   productId String?
   product   Product?      @relation(fields: [productId], references: [id], onDelete: Cascade)
   type      PriceRuleType
