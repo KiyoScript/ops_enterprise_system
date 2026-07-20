@@ -38,6 +38,9 @@ import type {
 } from "../schemas/quotation";
 import { computeTotals, type Totals } from "./totals";
 
+/** Branch code embedded in document numbers (Ormoc Printshoppe main). */
+const BRANCH_CODE = "ORM";
+
 const parseDate = (value?: string): Date | null =>
   value ? new Date(`${value}T00:00:00`) : null;
 const toIso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -92,22 +95,22 @@ export class QuotationService {
     private readonly productionSteps: IProductionStepRepository
   ) {}
 
-  /** One yearly series PER TYPE — replaces the 27 per-product prefixes of
-   *  the legacy system, but keeps the JO-style discriminator prefix so a
-   *  glance at the number tells the flavor apart:
-   *    SALES → Q-  ·  PO → PO-  ·  NON_JO → NJ-  */
+  /** Blueprint document-number format: PREFIX-ORM-YYMM-#####
+   *  (e.g. QT-ORM-2607-00123) — ORM is the Ormoc branch code, the series
+   *  resets monthly per type. The discriminator prefix keeps the flavor
+   *  readable at a glance: SALES → QT · PO → PO · NON_JO → NJ. */
   private async generateQuoteNumber(
     type: QuotationType,
     tx: DbTx
   ): Promise<string> {
     const prefix =
-      type === QuotationType.PO ? "PO" : type === QuotationType.NON_JO ? "NJ" : "Q";
-    const year = format(new Date(), "yyyy");
+      type === QuotationType.PO ? "PO" : type === QuotationType.NON_JO ? "NJ" : "QT";
+    const yymm = format(new Date(), "yyMM");
     const seq = await this.quotations.nextCounter(
-      `quotation:${prefix}:${year}`,
+      `quotation:${prefix}:${yymm}`,
       tx
     );
-    return `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
+    return `${prefix}-${BRANCH_CODE}-${yymm}-${String(seq).padStart(5, "0")}`;
   }
 
   async list(
