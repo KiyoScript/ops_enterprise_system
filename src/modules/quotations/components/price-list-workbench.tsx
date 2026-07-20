@@ -468,6 +468,16 @@ function GlobalAddonsSheet({
   );
 }
 
+// Same fee-name normalization the wizard merge uses (resolveWizardProduct):
+// "Rush" == "Rush Fee" — a global add-on with a matching key wins at quote
+// time, so the grid marks those product rows as overridden.
+const feeKey = (label: string) =>
+  label
+    .toLowerCase()
+    .replace(/\bfees?\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
 function ProductSheet({
   product,
   canMaintain,
@@ -476,10 +486,20 @@ function ProductSheet({
   canMaintain: boolean;
 }) {
   const queryClient = useQueryClient();
+  const globalAddons = useGlobalAddons();
   const [rows, setRows] = useState<Row[]>(product.rules.map(toRow));
   const [saving, setSaving] = useState(false);
   const [ruleQ, setRuleQ] = useState("");
   const ruleNeedle = useDebounce(ruleQ).trim().toLowerCase();
+
+  // feeKey → what quotes actually charge, e.g. "₱500" (global overrides).
+  const globalByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const g of globalAddons.data ?? []) {
+      map.set(feeKey(g.label), g.pct ? `${g.pct}%` : `₱${g.amount ?? "0"}`);
+    }
+    return map;
+  }, [globalAddons.data]);
 
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
@@ -594,7 +614,12 @@ function ProductSheet({
                   Showing {visible.length} of {rows.length} rules
                 </p>
               )}
-              {visible.map(({ r, i }) => (
+              {visible.map(({ r, i }) => {
+                const overriddenBy =
+                  r.type === "ADDON"
+                    ? globalByKey.get(feeKey(r.label))
+                    : undefined;
+                return (
                 <div
                   key={i}
                   className="grid grid-cols-[7rem_1fr_6rem_5rem_6rem_5rem_2.5rem] items-center gap-2"
@@ -614,12 +639,20 @@ function ProductSheet({
                       <SelectItem value="ADDON">Add-on</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Input
-                    value={r.label}
-                    onChange={(e) => setRow(i, { label: e.target.value })}
-                    placeholder="Label"
-                    readOnly={!canMaintain}
-                  />
+                  <div className="grid gap-0.5">
+                    <Input
+                      value={r.label}
+                      onChange={(e) => setRow(i, { label: e.target.value })}
+                      placeholder="Label"
+                      readOnly={!canMaintain}
+                      className={overriddenBy ? "opacity-60" : undefined}
+                    />
+                    {overriddenBy && (
+                      <p className="text-[11px] font-medium text-amber-600">
+                        Overridden by Common add-on — quotes charge {overriddenBy}
+                      </p>
+                    )}
+                  </div>
                   {r.type === "VARIANT" ? (
                     <>
                       <NumberField
@@ -676,7 +709,8 @@ function ProductSheet({
                     </Button>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
