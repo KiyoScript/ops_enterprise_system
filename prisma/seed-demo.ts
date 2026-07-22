@@ -23,6 +23,7 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
 });
 
+const BRANCH_CODE = "ORM"; // matches quotation-service + demo-data numbers
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const days = (n: number) => new Date(Date.now() + n * 86_400_000);
 
@@ -124,7 +125,13 @@ async function main() {
 
   // 3) Job orders ---------------------------------------------------------
   let newJos = 0;
+  let maxJoSeq = 0;
   for (const jo of demoJos) {
+    // Track the highest JO sequence so we can push the live JO counter past it.
+    maxJoSeq = Math.max(
+      maxJoSeq,
+      Number.parseInt(jo.number.slice(jo.number.lastIndexOf("-") + 1), 10)
+    );
     if (await prisma.jobOrder.findUnique({ where: { joNumber: jo.number }, select: { id: true } })) {
       continue;
     }
@@ -177,6 +184,17 @@ async function main() {
     newJos++;
   }
   console.log(`Job orders: +${newJos} new (${demoJos.length - newJos} already existed).`);
+
+  // Push the monthly JO counter past the seed numbers too (belt-and-suspenders;
+  // the app's generator also skips existing numbers).
+  const joKey = `jo:JO-${BRANCH_CODE}-${QUOTE_YYMM}`;
+  const joCounter = await prisma.counter.findUnique({ where: { key: joKey } });
+  if (!joCounter) {
+    await prisma.counter.create({ data: { key: joKey, value: maxJoSeq } });
+  } else if (joCounter.value < maxJoSeq) {
+    await prisma.counter.update({ where: { key: joKey }, data: { value: maxJoSeq } });
+  }
+
   console.log("Seed complete.");
 }
 

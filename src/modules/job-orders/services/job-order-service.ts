@@ -45,22 +45,26 @@ import {
 
 const DAY_MS = 86_400_000;
 
-/** Allocates the next "R-AD{yyyy}-{MM}-{dd}-{seq}" for today. Skips over
- *  numbers that already exist (imported legacy JOs share this format).
- *  Exported so quotation conversion allocates JO numbers the same way. */
+/** Branch code embedded in document numbers (Ormoc Printshoppe main). */
+const BRANCH_CODE = "ORM";
+
+/** Allocates the next "JO-ORM-{yymm}-{seq}" — the shared document-number
+ *  convention (PREFIX-BRANCH-YYMM-#####, sequence resets monthly), matching
+ *  quotations (QT/PO/NJ) and the MRN series. Skips over numbers that already
+ *  exist. Exported so quotation conversion allocates JO numbers the same way. */
 export async function allocateJoNumber(
   jobOrders: IJobOrderRepository,
   tx: DbTx
 ): Promise<string> {
-  const prefix = `R-AD${format(new Date(), "yyyy-MM-dd")}`;
+  const prefix = `JO-${BRANCH_CODE}-${format(new Date(), "yyMM")}`;
   for (let attempt = 0; attempt < 500; attempt++) {
     const seq = await jobOrders.nextCounter(`jo:${prefix}`, tx);
-    const candidate = `${prefix}-${String(seq).padStart(2, "0")}`;
+    const candidate = `${prefix}-${String(seq).padStart(5, "0")}`;
     if (!(await jobOrders.existsJoNumber(candidate, undefined, tx))) {
       return candidate;
     }
   }
-  throw new ValidationError("Could not allocate a JO number for today.");
+  throw new ValidationError("Could not allocate a JO number.");
 }
 
 const parseDate = (value?: string): Date | null =>
@@ -345,7 +349,7 @@ export class JobOrderService {
     assertCan(actor, "create", "JobOrder");
 
     // PO and non-JO numbers are typed by the user; a plain JO gets an
-    // auto-generated "R-AD{yyyy}-{MM}-{dd}-{seq}" (fusion-only behavior).
+    // auto-generated "JO-ORM-{yymm}-{seq}" (fusion-only behavior).
     const manual = input.isPO || input.isNonJo;
     const typedNumber = input.joNumber?.trim() ?? "";
     if (manual) {
@@ -954,6 +958,7 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
     description: item.description,
     fromQuote: item.fromQuote,
     qty: item.qty,
+    unitPrice: item.unitPrice.toString(),
     lineTotal: item.lineTotal.toString(),
     productionStatus: item.productionStatus,
     department: item.department,

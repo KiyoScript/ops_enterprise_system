@@ -1,230 +1,379 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 import { format } from "date-fns";
+import { COMPANY } from "@/lib/company";
 import type { JobOrderDetailDto } from "../schemas/job-order";
 
-// JO/PO printable. Until the customer approves (isApprovedByCustomer), the
-// document carries the "THIS IS FOR APPROVAL" banner + a signature line —
-// once approved it prints as a working copy with the approval stamp.
-// (Dot-matrix/continuous-form output is a separate spike; this is the
-// standard PDF printable.)
+// JO/PO printable — shares the Ormoc Printshoppe form language with the
+// Quotation printable (quotation-pdf.ts): logo + company block, title with
+// DATE / DEADLINE boxes, CUSTOMER INFO bar beside a JOB DETAILS box, the
+// DESCRIPTION OF WORK table (Line / Description / Qty / Unit Price / Amount),
+// a TOTAL bar, and a Prepared-by signature beside a Customer Approval box.
+// Until the customer approves (isApprovedByCustomer) it carries the
+// "THIS IS FOR APPROVAL" banner; once approved it prints the approval stamp.
 
 const PAGE_W = 595.28; // A4 portrait, points
 const PAGE_H = 841.89;
-const MARGIN = 48;
-const BRAND = rgb(0.72, 0.06, 0.13); // brand crimson
-const GRAY = rgb(0.45, 0.45, 0.45);
-const LIGHT = rgb(0.92, 0.9, 0.87);
+const M = 44; // margin
+const DARK = rgb(0.27, 0.27, 0.27); // #444 section bars
+const RED = rgb(0.8, 0, 0); // legacy #CC0000 accents
+const INK = rgb(0.08, 0.08, 0.08);
+const GRAY = rgb(0.42, 0.42, 0.42);
+const BORDER = rgb(0.62, 0.62, 0.62);
+const LIGHT = rgb(0.82, 0.82, 0.82);
 
-// StandardFonts are WinAnsi — no ₱ glyph, so amounts print as "PHP".
-const money = (value: string): string => {
-  const n = parseFloat(value);
+const CONTACT_LINE =
+  "If you have any questions, please contact Michelle Ca-ang, 0963-1220016, ormocprintshoppe@gmail.com";
+const COMPANY_EMAIL = "ormocprintshoppe@gmail.com";
+const PREPARED_LABEL = "Prepared by";
+
+// StandardFonts are WinAnsi — no ₱ glyph; "P" prefix is the PH convention.
+const money = (value: string | number): string => {
+  const n = typeof value === "number" ? value : parseFloat(value);
   return isNaN(n)
-    ? value
-    : `PHP ${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+    ? String(value)
+    : `P${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
 };
 
 const dateStr = (iso: string | null): string =>
   iso ? format(new Date(iso), "MMMM d, yyyy") : "—";
+// Date-only fields (deadline, plan window) come as yyyy-MM-dd — anchor to local
+// midnight so the printed day never shifts.
+const dayStr = (d: string | null): string =>
+  d ? format(new Date(`${d}T00:00:00`), "MMMM d, yyyy") : "—";
+const titleCase = (s: string): string =>
+  s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+let logoCache: Uint8Array | null | undefined;
+async function loadLogo(): Promise<Uint8Array | null> {
+  if (logoCache !== undefined) return logoCache;
+  try {
+    logoCache = new Uint8Array(
+      await readFile(path.join(process.cwd(), "public", "printshoppe-logo.png"))
+    );
+  } catch {
+    logoCache = null;
+  }
+  return logoCache;
+}
 
 export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
 
-  let page = doc.addPage([PAGE_W, PAGE_H]);
-  let y = PAGE_H - MARGIN;
+  const page = doc.addPage([PAGE_W, PAGE_H]);
+  let y = PAGE_H - M;
 
-  const newPage = () => {
-    page = doc.addPage([PAGE_W, PAGE_H]);
-    y = PAGE_H - MARGIN;
-  };
-  const ensure = (needed: number) => {
-    if (y - needed < MARGIN + 60) newPage();
-  };
   const text = (
     value: string,
-    opts: { x?: number; size?: number; font?: PDFFont; color?: ReturnType<typeof rgb> } = {}
-  ) => {
+    x: number,
+    yy: number,
+    size = 9,
+    f: PDFFont = font,
+    color = INK
+  ) => page.drawText(value, { x, y: yy, size, font: f, color });
+  const rightText = (
+    value: string,
+    rightX: number,
+    yy: number,
+    size = 9,
+    f: PDFFont = font,
+    color = INK
+  ) =>
     page.drawText(value, {
-      x: opts.x ?? MARGIN,
-      y,
-      size: opts.size ?? 10,
-      font: opts.font ?? font,
-      color: opts.color ?? rgb(0.1, 0.1, 0.1),
-    });
-  };
-  const line = (yy: number, color = LIGHT) =>
-    page.drawLine({
-      start: { x: MARGIN, y: yy },
-      end: { x: PAGE_W - MARGIN, y: yy },
-      thickness: 1,
+      x: rightX - f.widthOfTextAtSize(value, size),
+      y: yy,
+      size,
+      font: f,
       color,
     });
+  const bar = (x: number, yy: number, w: number, h: number, color = DARK) =>
+    page.drawRectangle({ x, y: yy, width: w, height: h, color });
+  const box = (x: number, yy: number, w: number, h: number, borderColor = BORDER) =>
+    page.drawRectangle({ x, y: yy, width: w, height: h, borderColor, borderWidth: 0.8 });
+  const hline = (yy: number, color = LIGHT, x1 = M, x2 = PAGE_W - M) =>
+    page.drawLine({ start: { x: x1, y: yy }, end: { x: x2, y: yy }, thickness: 0.8, color });
 
-  // ——— header ———
-  text("ORMOC PRINTSHOPPE", { size: 16, font: bold, color: BRAND });
-  y -= 14;
-  text("OPS Fusion — Fully Unified System Integrating Operations & Inventory", {
-    size: 8,
-    color: GRAY,
-  });
+  // ——— header: logo + company block (left), title + date boxes (right) ———
+  const logoBytes = await loadLogo();
+  if (logoBytes) {
+    // The legacy asset is a JPEG mislabeled as PNG — sniff the magic bytes.
+    const isPng = logoBytes[1] === 0x50 && logoBytes[2] === 0x4e;
+    const logo = isPng ? await doc.embedPng(logoBytes) : await doc.embedJpg(logoBytes);
+    const h = 52;
+    const w = (logo.width / logo.height) * h;
+    page.drawImage(logo, { x: M, y: y - h, width: w, height: h });
+  } else {
+    text(COMPANY.name, M, y - 16, 16, bold, RED);
+  }
+  let infoY = y - 64;
+  text(`Address : ${COMPANY.address}`, M, infoY, 7.5, font, GRAY);
+  infoY -= 10;
+  text(`Tel : ${COMPANY.tel}`, M, infoY, 7.5, font, GRAY);
+  infoY -= 10;
+  text(`Email : ${COMPANY_EMAIL}`, M, infoY, 7.5, font, GRAY);
+
   const docType = jo.isPO ? "PURCHASE ORDER" : jo.isNonJo ? "NON-JO" : "JOB ORDER";
-  page.drawText(docType, {
-    x: PAGE_W - MARGIN - bold.widthOfTextAtSize(docType, 14),
-    y: PAGE_H - MARGIN,
-    size: 14,
-    font: bold,
-    color: BRAND,
-  });
-  const numText = jo.joNumber;
-  page.drawText(numText, {
-    x: PAGE_W - MARGIN - bold.widthOfTextAtSize(numText, 11),
-    y: PAGE_H - MARGIN - 16,
-    size: 11,
-    font: bold,
-  });
-  y -= 18;
-  line(y);
-  y -= 20;
+  rightText(docType, PAGE_W - M, y - 20, 24, bold);
+  rightText(jo.joNumber, PAGE_W - M, y - 34, 11, bold, RED);
 
-  // ——— approval banner ———
+  // DATE / DEADLINE label-value boxes
+  const boxRight = PAGE_W - M;
+  const valueW = 108;
+  const labelW = 74;
+  const rowH = 15;
+  let boxY = y - 58;
+  const dateRow = (label: string, value: string) => {
+    bar(boxRight - valueW - labelW, boxY, labelW, rowH);
+    page.drawText(label, {
+      x: boxRight - valueW - labelW + 8,
+      y: boxY + 4,
+      size: 7.5,
+      font: bold,
+      color: rgb(1, 1, 1),
+    });
+    box(boxRight - valueW, boxY, valueW, rowH);
+    const v = font.widthOfTextAtSize(value, 8.5);
+    page.drawText(value, {
+      x: boxRight - valueW + (valueW - v) / 2,
+      y: boxY + 4,
+      size: 8.5,
+      font,
+      color: INK,
+    });
+    boxY -= rowH + 4;
+  };
+  dateRow("DATE", dateStr(jo.createdAt));
+  dateRow("DEADLINE", dayStr(jo.deadline));
+
+  y -= 100;
+  hline(y, DARK);
+  y -= 14;
+
+  // ——— approval banner / stamp ———
   if (!jo.isApprovedByCustomer) {
     page.drawRectangle({
-      x: MARGIN,
-      y: y - 8,
-      width: PAGE_W - MARGIN * 2,
-      height: 24,
+      x: M,
+      y: y - 6,
+      width: PAGE_W - M * 2,
+      height: 18,
       color: rgb(1, 0.95, 0.78),
       borderColor: rgb(0.85, 0.65, 0.13),
-      borderWidth: 1,
+      borderWidth: 0.8,
     });
     const banner = "THIS IS FOR APPROVAL";
     page.drawText(banner, {
-      x: (PAGE_W - bold.widthOfTextAtSize(banner, 12)) / 2,
+      x: (PAGE_W - bold.widthOfTextAtSize(banner, 10)) / 2,
       y: y - 1,
-      size: 12,
+      size: 10,
       font: bold,
       color: rgb(0.55, 0.4, 0),
     });
-    y -= 36;
+    y -= 26;
   } else {
     const stamp = `APPROVED BY CUSTOMER — ${dateStr(jo.customerApprovedAt)}`;
-    page.drawText(stamp, {
-      x: MARGIN,
-      y,
-      size: 10,
-      font: bold,
-      color: rgb(0.05, 0.5, 0.3),
-    });
-    y -= 22;
-  }
-
-  // ——— JO info ———
-  const info: [string, string][] = [
-    ["Customer", jo.customer.name],
-    ["Date created", dateStr(jo.createdAt)],
-    ["Deadline", dateStr(jo.deadline)],
-    ["Prepared by", jo.createdByName],
-  ];
-  if (jo.planDateStart || jo.planDateEnd) {
-    info.push([
-      "Plan window",
-      `${dateStr(jo.planDateStart)} – ${dateStr(jo.planDateEnd)}`,
-    ]);
-  }
-  for (const [label, value] of info) {
-    text(label.toUpperCase(), { size: 7, color: GRAY });
-    text(value, { x: MARGIN + 110, size: 10 });
-    y -= 15;
-  }
-  if (jo.notes) {
-    text("NOTES", { size: 7, color: GRAY });
-    text(jo.notes.replace(/\s+/g, " ").slice(0, 110), { x: MARGIN + 110, size: 9 });
-    y -= 15;
-  }
-  y -= 6;
-
-  // ——— items table ———
-  const cols = { n: MARGIN, desc: MARGIN + 24, qty: 400, amount: 470 };
-  line(y + 10, GRAY);
-  y -= 4;
-  text("#", { x: cols.n, size: 8, font: bold, color: GRAY });
-  text("DESCRIPTION", { x: cols.desc, size: 8, font: bold, color: GRAY });
-  text("QTY", { x: cols.qty, size: 8, font: bold, color: GRAY });
-  text("AMOUNT", { x: cols.amount, size: 8, font: bold, color: GRAY });
-  y -= 6;
-  line(y, GRAY);
-  y -= 14;
-
-  jo.items.forEach((item, index) => {
-    const descLines = wrap(item.description, font, 9, cols.qty - cols.desc - 12);
-    const extras: string[] = [];
-    if (item.category) extras.push(item.category);
-    if (item.isLFP && item.lfpWidth && item.lfpHeight) {
-      extras.push(`LFP ${item.lfpWidth} x ${item.lfpHeight} ${item.lfpUnit ?? ""}`);
-    }
-    if (item.isRush) extras.push("RUSH");
-    if (item.deadline) extras.push(`Due ${dateStr(item.deadline)}`);
-    const blockHeight = descLines.length * 11 + (extras.length ? 11 : 0) + 8;
-    ensure(blockHeight);
-
-    text(String(index + 1), { x: cols.n, size: 9 });
-    for (const dl of descLines) {
-      text(dl, { x: cols.desc, size: 9 });
-      y -= 11;
-    }
-    if (extras.length) {
-      text(extras.join("  ·  "), { x: cols.desc, size: 7, color: GRAY });
-      y -= 11;
-    }
-    const rowTop = y + descLines.length * 11 + (extras.length ? 11 : 0);
-    page.drawText(String(item.qty), { x: cols.qty, y: rowTop - 11, size: 9, font });
-    page.drawText(money(item.lineTotal), { x: cols.amount, y: rowTop - 11, size: 9, font });
-    y -= 8;
-  });
-
-  line(y + 4, GRAY);
-  y -= 12;
-  ensure(30);
-  text("TOTAL", { x: cols.qty, size: 10, font: bold });
-  text(money(jo.total), { x: cols.amount, size: 10, font: bold });
-  y -= 30;
-
-  // ——— signature block (unapproved printables) ———
-  if (!jo.isApprovedByCustomer) {
-    ensure(70);
-    text(
-      "I have reviewed the specifications, quantities, amounts, and promise date above and approve this job order.",
-      { size: 8, color: GRAY }
-    );
-    y -= 40;
-    page.drawLine({
-      start: { x: MARGIN, y },
-      end: { x: MARGIN + 220, y },
-      thickness: 1,
-      color: rgb(0.1, 0.1, 0.1),
-    });
-    y -= 11;
-    text("Customer signature over printed name / date", { size: 7, color: GRAY });
+    text(stamp, M, y, 9, bold, rgb(0.05, 0.5, 0.3));
     y -= 20;
   }
 
+  // ——— customer info (left) + job details box (right) ———
+  const detW = 218;
+  const detX = PAGE_W - M - detW;
+
+  bar(M, y - 13, 150, 13);
+  page.drawText("CUSTOMER INFO", {
+    x: M + 8,
+    y: y - 9.5,
+    size: 7.5,
+    font: bold,
+    color: rgb(1, 1, 1),
+  });
+  let custY = y - 28;
+  text(jo.customer.name, M, custY, 12, bold);
+  custY -= 13;
+  const custMeta = [
+    jo.customer.company && jo.customer.company !== jo.customer.name ? jo.customer.company : null,
+    jo.customer.contactNumber,
+    jo.customer.email,
+    jo.customer.address,
+    jo.customer.tin ? `TIN: ${jo.customer.tin}` : null,
+  ].filter((v): v is string => !!v);
+  for (const meta of custMeta) {
+    for (const line of wrap(meta, font, 8.5, detX - M - 14)) {
+      text(line, M, custY, 8.5);
+      custY -= 11;
+    }
+  }
+
+  // JOB DETAILS box (mirrors the quotation's note box position).
+  const detailRows: [string, string][] = [
+    ["Status", titleCase(jo.status)],
+    [PREPARED_LABEL, jo.createdByName],
+  ];
+  if (jo.planDateStart || jo.planDateEnd) {
+    detailRows.push(["Plan window", `${dayStr(jo.planDateStart)} – ${dayStr(jo.planDateEnd)}`]);
+  }
+  if (jo.completedAt) detailRows.push(["Completed", dateStr(jo.completedAt)]);
+  if (jo.isLFP) detailRows.push(["Type", "Large-Format Print"]);
+  const detH = detailRows.length * 13 + 20;
+  box(detX, y - detH, detW, detH);
+  bar(detX, y - 13, detW, 13);
+  page.drawText("JOB DETAILS", {
+    x: detX + 8,
+    y: y - 9.5,
+    size: 7.5,
+    font: bold,
+    color: rgb(1, 1, 1),
+  });
+  let detY = y - 26;
+  for (const [label, value] of detailRows) {
+    text(label.toUpperCase(), detX + 8, detY, 6.5, font, GRAY);
+    text(value, detX + 92, detY, 8, bold);
+    detY -= 13;
+  }
+
+  y -= Math.max(detH, y - custY) + 18;
+
+  // ——— DESCRIPTION OF WORK ———
+  bar(M, y - 13, PAGE_W - M * 2, 13);
+  page.drawText("DESCRIPTION OF WORK", {
+    x: M + 8,
+    y: y - 9.5,
+    size: 7.5,
+    font: bold,
+    color: rgb(1, 1, 1),
+  });
+  y -= 26;
+  if (jo.notes) {
+    for (const line of wrap(jo.notes, font, 8, PAGE_W - M * 2)) {
+      text(line, M, y, 8, font, rgb(0.25, 0.25, 0.25));
+      y -= 10;
+    }
+    y -= 6;
+  }
+
+  // ——— items table ———
+  const col = { no: M, desc: M + 34, qty: 356, unit: 404, amount: 486, end: PAGE_W - M };
+  const headH = 16;
+  bar(col.no, y - headH, col.end - col.no, headH);
+  const th = (label: string, x: number) =>
+    page.drawText(label, { x, y: y - 11.5, size: 7.5, font: bold, color: rgb(1, 1, 1) });
+  th("Line", col.no + 4);
+  th("DESCRIPTION", col.desc + 4);
+  th("QTY", col.qty + 6);
+  th("UNIT PRICE", col.unit + 6);
+  th("AMOUNT", col.amount + 10);
+  y -= headH;
+
+  const drawCellBorders = (top: number, bottom: number) => {
+    for (const x of [col.no, col.desc, col.qty, col.unit, col.amount, col.end]) {
+      page.drawLine({ start: { x, y: top }, end: { x, y: bottom }, thickness: 0.8, color: LIGHT });
+    }
+    hline(bottom, LIGHT, col.no, col.end);
+  };
+
+  jo.items.forEach((item, index) => {
+    const titleLines = wrap(item.description, bold, 8.5, col.qty - col.desc - 10);
+    const extras: string[] = [];
+    if (item.lineItemId) extras.push(item.lineItemId);
+    if (item.category) extras.push(item.category);
+    if (item.isLFP && item.lfpWidth && item.lfpHeight) {
+      extras.push(`LFP ${item.lfpWidth} x ${item.lfpHeight} ${item.lfpUnit ?? ""}`.trim());
+    }
+    if (item.isRush) extras.push("RUSH");
+    if (item.productionStatus) extras.push(item.productionStatus);
+    if (item.deadline) extras.push(`Due ${dayStr(item.deadline)}`);
+    const detailLines = extras.length
+      ? wrap(extras.join("  ·  "), font, 7, col.qty - col.desc - 10)
+      : [];
+    const rowH = Math.max(titleLines.length * 10 + detailLines.length * 8.5 + 12, 24);
+    const top = y;
+    let ty = y - 12;
+    text(String(index + 1), col.no + 10, ty, 8.5);
+    for (const line of titleLines) {
+      text(line, col.desc + 4, ty, 8.5, bold);
+      ty -= 10;
+    }
+    for (const line of detailLines) {
+      text(line, col.desc + 4, ty, 7, font, rgb(0.3, 0.3, 0.3));
+      ty -= 8.5;
+    }
+    text(String(item.qty), col.qty + 10, top - 12, 8.5);
+    rightText(money(item.unitPrice), col.amount - 6, top - 12, 8.5);
+    rightText(money(item.lineTotal), col.end - 6, top - 12, 8.5, bold);
+    y = top - rowH;
+    drawCellBorders(top, y);
+  });
+
+  // filler rows for the classic form look (min 2)
+  for (let i = 0; i < Math.max(2, 4 - jo.items.length); i++) {
+    const top = y;
+    y -= 20;
+    drawCellBorders(top, y);
+  }
+
+  // ——— total bar (right of the table) ———
+  const tLabelX = col.qty;
+  const totH = 17;
+  y -= totH;
+  bar(tLabelX, y, col.end - tLabelX, totH);
+  page.drawText("TOTAL in PhP", { x: tLabelX + 6, y: y + 5, size: 8.5, font: bold, color: rgb(1, 1, 1) });
+  rightText(money(jo.total), col.end - 6, y + 5, 9, bold, rgb(1, 1, 1));
+  y -= 30;
+
+  // ——— prepared-by (left) + customer approval box (right) ———
+  text(`${PREPARED_LABEL}:`, M, y, 8, italic, GRAY);
+  page.drawLine({ start: { x: M, y: y - 34 }, end: { x: M + 170, y: y - 34 }, thickness: 0.8, color: INK });
+  text(jo.createdByName, M, y - 45, 10, bold);
+  text("Ormoc Printshoppe", M, y - 56, 7.5, font, GRAY);
+
+  const accW = 250;
+  const accX = PAGE_W - M - accW;
+  const accH = 90;
+  box(accX, y - accH + 8, accW, accH);
+  text("Customer Approval", accX + 10, y - 6, 9, bold);
+  wrap(
+    "I have reviewed the specifications, quantities, amounts, and promise date above and approve this job order.",
+    italic,
+    6.8,
+    accW - 20
+  )
+    .slice(0, 3)
+    .forEach((line, i) => {
+      text(line, accX + 10, y - 19 - i * 8, 6.8, italic, rgb(0.3, 0.3, 0.3));
+    });
+  const sigY = y - accH + 26;
+  const sigLine = (x: number, w: number, label: string) => {
+    page.drawLine({ start: { x, y: sigY }, end: { x: x + w, y: sigY }, thickness: 0.8, color: INK });
+    text(label, x, sigY - 9, 6.5, font, GRAY);
+  };
+  sigLine(accX + 10, 88, "Signature");
+  sigLine(accX + 108, 82, "Printed Name");
+  sigLine(accX + 200, 40, "Date");
+
   // ——— footer ———
-  page.drawText(
-    `Generated ${format(new Date(), "M/d/yyyy h:mm a")} · OPS Fusion`,
-    { x: MARGIN, y: MARGIN - 18, size: 7, font, color: GRAY }
-  );
+  hline(M + 14, LIGHT);
+  page.drawText(CONTACT_LINE, {
+    x: (PAGE_W - font.widthOfTextAtSize(CONTACT_LINE, 7)) / 2,
+    y: M,
+    size: 7,
+    font,
+    color: rgb(0.35, 0.45, 0.6),
+  });
 
   return doc.save();
 }
 
-function wrap(value: string, font: PDFFont, size: number, maxWidth: number): string[] {
+function wrap(value: string, f: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = [];
   for (const raw of value.split(/\r?\n/)) {
     let current = "";
     for (const word of raw.split(/\s+/)) {
       const candidate = current ? `${current} ${word}` : word;
-      if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      if (f.widthOfTextAtSize(candidate, size) <= maxWidth) {
         current = candidate;
       } else {
         if (current) lines.push(current);
@@ -233,5 +382,5 @@ function wrap(value: string, font: PDFFont, size: number, maxWidth: number): str
     }
     lines.push(current);
   }
-  return lines.length ? lines : [""];
+  return lines.filter((l, i) => l !== "" || i === 0);
 }

@@ -3,10 +3,10 @@
 // (creates them) and prisma/unseed-demo.ts (removes them). Pure data, no side
 // effects. Everything here uses REAL document-number formats so the rows are
 // indistinguishable from live data in the UI:
-//   • JO numbers   R-AD{yyyy-MM-dd}-{seq}   (back-dated so they never collide
-//                                            with today's auto-generated JOs)
-//   • Quote numbers {QT|PO|NJ}-ORM-{yymm}-{seq5}  (seq chosen above the live
-//                     counter; seed-demo bumps the counter so the app skips them)
+//   • JO numbers    JO-ORM-{yymm}-{seq5}          (same PREFIX-BRANCH-YYMM-####
+//   • Quote numbers {QT|PO|NJ}-ORM-{yymm}-{seq5}   convention as the live app)
+// Seq numbers sit above the live counters, and seed-demo bumps those counters
+// so the app never regenerates a colliding number.
 // Identity for cleanup is carried by the numbers/names themselves (below) — no
 // visible "DEMO" marker anywhere on the rows.
 // ============================================================
@@ -197,7 +197,7 @@ export interface DemoJo {
 
 export const demoJos: DemoJo[] = [
   {
-    number: "R-AD2026-07-18-03",
+    number: `JO-ORM-${QUOTE_YYMM}-00001`,
     customer: 0,
     status: JobOrderStatus.IN_PROGRESS,
     isLFP: true,
@@ -222,7 +222,7 @@ export const demoJos: DemoJo[] = [
     ],
   },
   {
-    number: "R-AD2026-07-19-01",
+    number: `JO-ORM-${QUOTE_YYMM}-00002`,
     customer: 1,
     status: JobOrderStatus.COMPLETED,
     deadlineDays: -3,
@@ -244,7 +244,7 @@ export const demoJos: DemoJo[] = [
     ],
   },
   {
-    number: "R-AD2026-07-20-01",
+    number: `JO-ORM-${QUOTE_YYMM}-00003`,
     customer: 2,
     status: JobOrderStatus.APPROVED,
     deadlineDays: 6,
@@ -273,7 +273,7 @@ export const demoJos: DemoJo[] = [
     ],
   },
   {
-    number: "R-AD2026-07-21-01",
+    number: `JO-ORM-${QUOTE_YYMM}-00004`,
     customer: 3,
     status: JobOrderStatus.DRAFT,
     deadlineDays: 9,
@@ -291,7 +291,7 @@ export const demoJos: DemoJo[] = [
     ],
   },
   {
-    number: "R-AD2026-07-21-02",
+    number: `JO-ORM-${QUOTE_YYMM}-00005`,
     customer: 4,
     status: JobOrderStatus.IN_PROGRESS,
     deadlineDays: 1,

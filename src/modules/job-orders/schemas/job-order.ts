@@ -67,7 +67,7 @@ export const itemEditInput = itemFields
   .check(lfpCheck);
 
 // JO/PO typing (fusion-only, not in legacy): PO and non-JO numbers are typed
-// manually; a plain JO gets an auto-generated "R-AD{yyyy}-{MM}-{dd}-{seq}".
+// manually; a plain JO gets an auto-generated "JO-ORM-{yymm}-{seq}".
 const jobOrderBaseInput = z
   .object({
     joNumber: z.string().trim().max(60).optional(),
@@ -192,6 +192,7 @@ export type JobOrderItemDto = {
   description: string;
   fromQuote: boolean; // description is locked (copied from an approved quote)
   qty: number;
+  unitPrice: string;
   lineTotal: string;
   productionStatus: string | null;
   department: string | null;
@@ -268,7 +269,15 @@ export type JobOrderDetailDto = {
   isApprovedByCustomer: boolean;
   customerApprovedAt: string | null;
   attachments: AttachmentDto[];
-  customer: { id: string; name: string };
+  customer: {
+    id: string;
+    name: string;
+    company: string | null;
+    contactNumber: string | null;
+    email: string | null;
+    address: string | null;
+    tin: string | null;
+  };
   notes: string | null;
   planDateStart: string | null;
   planDateEnd: string | null;

@@ -32,7 +32,8 @@ model JobOrder {
   planDateEnd      DateTime?
   isLFP            Boolean           @default(false) // LFP JOs print 3 copies (spec 1.2 step 3)
   // JO/PO typing (fusion-only): PO and non-JO records carry a manually typed
-  // number; when both are false the number is auto-generated (R-AD format).
+  // number; when both are false the number is auto-generated
+  // (JO-ORM-YYMM-##### format — the shared PREFIX-BRANCH-YYMM-#### convention).
   isPO             Boolean           @default(false)
   isNonJo          Boolean           @default(false)
   // Customer approval gate (fusion-only): checking this REQUIRES at least one

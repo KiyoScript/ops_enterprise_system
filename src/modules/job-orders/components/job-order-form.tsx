@@ -224,7 +224,7 @@ export function JobOrderForm({
                   ? "Type the customer's PO number"
                   : watchedIsNonJo
                     ? "Type the reference number"
-                    : "Auto-generated (R-AD…)"
+                    : "Auto-generated (JO-ORM-…)"
               }
               disabled={mode === "edit" || (!watchedIsPO && !watchedIsNonJo)}
               aria-invalid={!!errors.joNumber}
