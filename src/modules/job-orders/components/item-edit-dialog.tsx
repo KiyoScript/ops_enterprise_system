@@ -138,6 +138,7 @@ export function ItemEditDialog({
             {row?.fromQuote ? (
               <>
                 <Textarea
+                  key="desc-locked"
                   id="ie-desc"
                   rows={2}
                   readOnly
@@ -152,6 +153,7 @@ export function ItemEditDialog({
             ) : (
               <>
                 <Textarea
+                  key="desc-editable"
                   id="ie-desc"
                   rows={2}
                   aria-invalid={!!errors.description}
@@ -180,6 +182,7 @@ export function ItemEditDialog({
                 </span>
                 {row?.fromQuote ? (
                   <Input
+                    key="amount-locked"
                     id="ie-amount"
                     className="pl-7 bg-muted/50 text-muted-foreground"
                     readOnly
@@ -187,6 +190,7 @@ export function ItemEditDialog({
                   />
                 ) : (
                   <Input
+                    key="amount-editable"
                     id="ie-amount"
                     className="pl-7"
                     aria-invalid={!!errors.amount}
