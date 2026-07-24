@@ -155,6 +155,7 @@ function detailToFormValues(jo: JobOrderDetailDto): JobOrderCreateInput {
     items: jo.items.map((item) => ({
       id: item.id,
       fromQuote: item.fromQuote,
+      unitPrice: item.unitPrice,
       description: item.description,
       qty: String(item.qty),
       amount: item.lineTotal,

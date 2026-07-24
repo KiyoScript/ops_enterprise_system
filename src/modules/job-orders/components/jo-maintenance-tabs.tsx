@@ -61,7 +61,9 @@ export function JoMaintenanceTabs({
       <TabsContent value="workflows">
         <div className="grid gap-6">
           <GlobalWorkflowManager items={globalSteps} />
-          <ProductionWorkflowsCard />
+          <ProductionWorkflowsCard
+            globalStepNames={globalSteps.filter((s) => s.isActive).map((s) => s.name)}
+          />
         </div>
       </TabsContent>
 

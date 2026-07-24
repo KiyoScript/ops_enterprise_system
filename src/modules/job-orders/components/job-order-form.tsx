@@ -118,10 +118,20 @@ export function JobOrderForm({
   );
 
   const onSubmit = form.handleSubmit(async (values) => {
+    // Quote-derived items keep a locked amount = qty × unit price (the field is
+    // read-only), so recompute it here in case the qty changed.
+    const payload = {
+      ...values,
+      items: values.items.map((it) =>
+        it.fromQuote
+          ? { ...it, amount: lockedAmount(it.qty, it.unitPrice).toFixed(2) }
+          : it
+      ),
+    };
     const result =
       mode === "create"
-        ? await createJobOrderAction(values)
-        : await updateJobOrderAction({ ...values, id: jobOrderId });
+        ? await createJobOrderAction(payload)
+        : await updateJobOrderAction({ ...payload, id: jobOrderId });
 
     if (!result.ok) {
       toast.error(result.error);
@@ -345,15 +355,25 @@ export function JobOrderForm({
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor={`item-amount-${index}`}>JO Amount (₱)</Label>
-                  <Input
-                    id={`item-amount-${index}`}
-                    aria-invalid={!!errors.items?.[index]?.amount}
-                    {...numericField(
-                      form.register(`items.${index}.amount`),
-                      "decimal"
-                    )}
-                  />
-                  <FieldError message={errors.items?.[index]?.amount?.message} />
+                  {field.fromQuote ? (
+                    <ReadonlyAmount
+                      index={index}
+                      unitPrice={field.unitPrice ?? "0"}
+                      qty={watchedItems?.[index]?.qty}
+                    />
+                  ) : (
+                    <>
+                      <Input
+                        id={`item-amount-${index}`}
+                        aria-invalid={!!errors.items?.[index]?.amount}
+                        {...numericField(
+                          form.register(`items.${index}.amount`),
+                          "decimal"
+                        )}
+                      />
+                      <FieldError message={errors.items?.[index]?.amount?.message} />
+                    </>
+                  )}
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor={`item-deadline-${index}`}>Deadline</Label>
@@ -551,4 +571,41 @@ export function JobOrderForm({
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return <p className="text-xs text-destructive">{message}</p>;
+}
+
+/** Locked line total for a quote-derived item: qty × unit price. */
+function lockedAmount(qty: string | undefined, unitPrice: string | undefined): number {
+  const q = Math.max(parseInt(qty ?? "", 10) || 0, 0);
+  const up = parseFloat(unitPrice ?? "0") || 0;
+  return Math.round(q * up * 100) / 100;
+}
+
+const pesoFmt = (n: number) =>
+  n.toLocaleString("en-PH", { minimumFractionDigits: 2 });
+
+/** Read-only JO Amount for quote-derived items — auto = qty × unit price. */
+function ReadonlyAmount({
+  index,
+  unitPrice,
+  qty,
+}: {
+  index: number;
+  unitPrice: string;
+  qty?: string;
+}) {
+  const q = Math.max(parseInt(qty ?? "", 10) || 0, 0);
+  const up = parseFloat(unitPrice) || 0;
+  return (
+    <>
+      <Input
+        id={`item-amount-${index}`}
+        readOnly
+        className="bg-muted/50 text-muted-foreground"
+        value={pesoFmt(lockedAmount(qty, unitPrice))}
+      />
+      <p className="text-xs text-muted-foreground">
+        Auto: {q} × ₱{pesoFmt(up)}
+      </p>
+    </>
+  );
 }
