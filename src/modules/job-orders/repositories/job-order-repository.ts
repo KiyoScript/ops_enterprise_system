@@ -385,7 +385,11 @@ export interface IJobOrderRepository {
   ): Promise<{ id: string; statusHistory: string | null }[]>;
   findStep(
     stepId: string
-  ): Promise<{ jobOrderItemId: string; statusHistory: string | null } | null>;
+  ): Promise<{
+    jobOrderItemId: string;
+    statusHistory: string | null;
+    doneAt: Date | null;
+  } | null>;
   setStepStatusHistory(stepId: string, statusHistory: string): Promise<void>;
   findAttachment(
     attachmentId: string
@@ -940,7 +944,7 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
   async findStep(stepId: string) {
     return prisma.jobOrderItemStep.findUnique({
       where: { id: stepId },
-      select: { jobOrderItemId: true, statusHistory: true },
+      select: { jobOrderItemId: true, statusHistory: true, doneAt: true },
     });
   }
 

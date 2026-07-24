@@ -188,7 +188,9 @@ export function ItemStepsChecklist({
                 {openStep === step.id && (
                   <div className="mt-1.5 grid gap-2">
                     <StatusHistoryTimeline history={histories.data?.[step.id] ?? null} />
-                    {canEdit && (
+                    {/* A completed step is locked — new updates belong to the
+                        NEXT (in-progress) step, not this finished one. */}
+                    {canEdit && !isDone ? (
                       <div className="grid gap-1">
                         <Textarea
                           rows={2}
@@ -206,7 +208,11 @@ export function ItemStepsChecklist({
                           {addStatus.isPending ? "Adding…" : "Add update"}
                         </Button>
                       </div>
-                    )}
+                    ) : isDone ? (
+                      <p className="text-xs text-muted-foreground italic">
+                        Step done — post updates on the next step instead.
+                      </p>
+                    ) : null}
                   </div>
                 )}
               </div>

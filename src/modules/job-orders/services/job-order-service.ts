@@ -380,6 +380,10 @@ export class JobOrderService {
     assertCan(actor, "update", "JobOrder");
     const step = await this.jobOrders.findStep(stepId);
     if (!step) throw new NotFoundError("Production step not found.");
+    // A completed step is locked — updates belong to the next step.
+    if (step.doneAt !== null) {
+      throw new ValidationError("This step is already done — post updates on the next step.");
+    }
     const next = appendHistory(step.statusHistory, remark);
     await this.jobOrders.setStepStatusHistory(stepId, next);
     await this.activity.log({
