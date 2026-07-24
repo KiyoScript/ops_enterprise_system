@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LookupManager } from "@/modules/shared/components/lookup-manager";
 import { EmployeeManager } from "@/modules/shared/components/employee-manager";
 import { GlobalWorkflowManager } from "./global-workflow-manager";
+import { ProductionWorkflowsCard } from "./production-workflows-card";
 import type { LookupDto } from "@/modules/shared/schemas/lookup";
 import type { EmployeeDto } from "@/modules/shared/schemas/employee";
 import type { GlobalStepDto } from "../schemas/production-workflow";
@@ -58,7 +59,10 @@ export function JoMaintenanceTabs({
       </TabsContent>
 
       <TabsContent value="workflows">
-        <GlobalWorkflowManager items={globalSteps} />
+        <div className="grid gap-6">
+          <GlobalWorkflowManager items={globalSteps} />
+          <ProductionWorkflowsCard />
+        </div>
       </TabsContent>
 
       <TabsContent value="employees">
