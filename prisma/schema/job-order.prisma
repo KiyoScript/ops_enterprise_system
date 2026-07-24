@@ -138,6 +138,10 @@ model JobOrderItemStep {
   doneAt        DateTime? // set when the step is completed
   doneById      String?
   doneBy        User?        @relation("StepCompletedBy", fields: [doneById], references: [id])
+  // Per-step status history (ruling 2026-07-24: status history moved from the
+  // item to each step) — timestamped remark lines, same legacy format as
+  // JobOrderItem.statusHistory ("4/23 2:30 PM Printing done").
+  statusHistory String?
 
   @@index([jobOrderItemId])
 }

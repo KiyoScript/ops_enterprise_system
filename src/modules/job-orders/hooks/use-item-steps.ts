@@ -34,6 +34,34 @@ export function useToggleItemStep(jobOrderItemId: string | null) {
   });
 }
 
+/** Per-step status histories of one JO item: { [stepId]: historyText|null }. */
+export function useStepHistories(jobOrderItemId: string | null) {
+  return useQuery({
+    queryKey: ["step-histories", jobOrderItemId],
+    queryFn: () =>
+      fetchJson<Record<string, string | null>>(
+        `/api/job-orders/items/${jobOrderItemId}/step-status`
+      ),
+    enabled: jobOrderItemId !== null,
+  });
+}
+
+/** Post a status update onto one production step (per-step history). */
+export function useAddStepStatus(jobOrderItemId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { stepId: string; remark: string }) =>
+      fetchJson<null>(`/api/job-orders/items/${jobOrderItemId}/step-status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["step-histories", jobOrderItemId] });
+    },
+  });
+}
+
 /** Backfill: copy the product's current workflow onto this item (for items
  *  created before the template was defined). */
 export function useApplyItemWorkflow(jobOrderItemId: string | null) {

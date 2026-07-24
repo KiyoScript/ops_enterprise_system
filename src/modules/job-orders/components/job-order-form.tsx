@@ -37,6 +37,7 @@ import { useEmployeeOptions } from "@/modules/shared/hooks/use-employees";
 import { CustomerCombobox } from "./customer-combobox";
 
 const EMPTY_ITEM: JobOrderCreateInput["items"][number] = {
+  fromQuote: false,
   description: "",
   qty: "1",
   amount: "",
@@ -310,12 +311,23 @@ export function JobOrderForm({
                 <Textarea
                   id={`item-desc-${index}`}
                   rows={2}
+                  readOnly={field.fromQuote}
                   aria-invalid={!!errors.items?.[index]?.description}
+                  className={
+                    field.fromQuote ? "bg-muted/50 text-muted-foreground" : undefined
+                  }
                   {...form.register(`items.${index}.description`)}
                 />
-                <FieldError
-                  message={errors.items?.[index]?.description?.message}
-                />
+                {field.fromQuote ? (
+                  <p className="text-xs text-muted-foreground">
+                    Locked — copied from the approved quotation. Use the JO notes
+                    for extra requirements.
+                  </p>
+                ) : (
+                  <FieldError
+                    message={errors.items?.[index]?.description?.message}
+                  />
+                )}
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3">

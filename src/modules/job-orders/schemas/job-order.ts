@@ -25,6 +25,8 @@ const amountString = z
 
 const itemFields = z.object({
   id: z.string().optional(), // present when editing an existing item
+  // UI-only flag: quote-derived items lock the description (server ignores it).
+  fromQuote: z.boolean().optional(),
   description: z.string().trim().min(1, "Job description is required"),
   qty: qtyString,
   amount: amountString, // line total, like the legacy "JO Amount"

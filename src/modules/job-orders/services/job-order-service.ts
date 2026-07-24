@@ -361,6 +361,37 @@ export class JobOrderService {
     return { jo, stepsByItem };
   }
 
+  /** Per-step status histories of one JO item (stepId → history text) — for
+   *  the per-step status timelines in the item dialog. */
+  async getStepHistories(
+    _actor: Actor,
+    jobOrderItemId: string
+  ): Promise<Record<string, string | null>> {
+    const rows = await this.jobOrders.listStepHistories(jobOrderItemId);
+    return Object.fromEntries(rows.map((r) => [r.id, r.statusHistory]));
+  }
+
+  /** Post a status update onto ONE production step (per-step history). */
+  async addStepStatus(
+    actor: Actor,
+    stepId: string,
+    remark: string
+  ): Promise<{ jobOrderItemId: string }> {
+    assertCan(actor, "update", "JobOrder");
+    const step = await this.jobOrders.findStep(stepId);
+    if (!step) throw new NotFoundError("Production step not found.");
+    const next = appendHistory(step.statusHistory, remark);
+    await this.jobOrders.setStepStatusHistory(stepId, next);
+    await this.activity.log({
+      userId: actor.id,
+      entityType: "JobOrderItemStep",
+      entityId: stepId,
+      action: "status",
+      payload: { remark: remark.slice(0, 200) },
+    });
+    return { jobOrderItemId: step.jobOrderItemId };
+  }
+
   async create(
     actor: Actor,
     input: JobOrderCreateInput

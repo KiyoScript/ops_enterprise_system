@@ -36,7 +36,6 @@ import {
   useInvalidateJobOrders,
   useJoDeadlineHistory,
 } from "../hooks/use-job-orders";
-import { StatusHistoryTimeline } from "./status-history-timeline";
 
 /** Legacy updateJORow modal: edits ONE line item — the board's Edit action. */
 export function ItemEditDialog({
@@ -288,23 +287,8 @@ export function ItemEditDialog({
             )}
           </div>
 
-          <StatusHistoryTimeline history={row?.statusHistory ?? null} />
-
-          <div className="grid gap-2 rounded-lg bg-muted/50 p-3">
-            <Label htmlFor="ie-remark" className="text-xs font-bold tracking-wide uppercase">
-              Add new status update
-            </Label>
-            <Textarea
-              id="ie-remark"
-              rows={2}
-              placeholder="e.g. Printing done, for lamination…"
-              {...form.register("remark")}
-            />
-            <p className="text-xs text-muted-foreground">
-              📅 Date &amp; time will be prepended automatically — e.g.{" "}
-              <em>4/23 2:30 PM Ongoing</em>
-            </p>
-          </div>
+          {/* Item-level status history replaced by per-step status updates
+              (in the Production steps checklist above). */}
 
           <DialogFooter className="sm:flex-col sm:items-stretch">
             <Button type="submit" className="w-full" disabled={isSubmitting}>

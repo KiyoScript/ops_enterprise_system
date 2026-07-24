@@ -1,15 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { CheckIcon, ListChecksIcon } from "lucide-react";
+import { CheckIcon, ListChecksIcon, MessageSquarePlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { elapsed } from "./status-history-timeline";
+import { Textarea } from "@/components/ui/textarea";
+import { StatusHistoryTimeline, elapsed } from "./status-history-timeline";
 import {
+  useAddStepStatus,
   useApplyItemWorkflow,
   useItemSteps,
+  useStepHistories,
   useToggleItemStep,
 } from "../hooks/use-item-steps";
 
@@ -25,6 +29,28 @@ export function ItemStepsChecklist({
   const { data: steps, isPending } = useItemSteps(jobOrderItemId);
   const toggle = useToggleItemStep(jobOrderItemId);
   const apply = useApplyItemWorkflow(jobOrderItemId);
+  const histories = useStepHistories(jobOrderItemId);
+  const addStatus = useAddStepStatus(jobOrderItemId);
+  const [openStep, setOpenStep] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  const postStatus = (stepId: string) => {
+    if (!draft.trim()) {
+      toast.error("Type a status update first.");
+      return;
+    }
+    addStatus.mutate(
+      { stepId, remark: draft.trim() },
+      {
+        onSuccess: () => {
+          toast.success("Status update added.");
+          setDraft("");
+        },
+        onError: (err) =>
+          toast.error(err instanceof Error ? err.message : "Could not add the update."),
+      }
+    );
+  };
 
   if (isPending) {
     return <p className="text-sm text-muted-foreground">Loading steps…</p>;
@@ -139,6 +165,51 @@ export function ItemStepsChecklist({
                   </span>
                 )}
               </button>
+
+              <div className="pl-8">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenStep(openStep === step.id ? null : step.id);
+                    setDraft("");
+                  }}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <MessageSquarePlusIcon className="size-3.5" />
+                  {openStep === step.id ? "Hide status updates" : "Status updates"}
+                  {(() => {
+                    const h = histories.data?.[step.id];
+                    const count = h ? h.split("\n").filter(Boolean).length : 0;
+                    return count > 0 ? (
+                      <Badge variant="ghost" className="text-[0.65rem]">{count}</Badge>
+                    ) : null;
+                  })()}
+                </button>
+                {openStep === step.id && (
+                  <div className="mt-1.5 grid gap-2">
+                    <StatusHistoryTimeline history={histories.data?.[step.id] ?? null} />
+                    {canEdit && (
+                      <div className="grid gap-1">
+                        <Textarea
+                          rows={2}
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          placeholder="e.g. Printing done, for lamination…"
+                          className="text-sm"
+                        />
+                        <Button
+                          size="xs"
+                          className="w-fit"
+                          disabled={addStatus.isPending}
+                          onClick={() => postStatus(step.id)}
+                        >
+                          {addStatus.isPending ? "Adding…" : "Add update"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </li>
           );
         })}

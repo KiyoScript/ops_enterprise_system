@@ -379,6 +379,14 @@ export interface IJobOrderRepository {
   listItemStepsForJob(jobOrderId: string): Promise<
     { jobOrderItemId: string; name: string; sortOrder: number; doneAt: Date | null }[]
   >;
+  /** Per-step status histories of one JO item (stepId → history text). */
+  listStepHistories(
+    jobOrderItemId: string
+  ): Promise<{ id: string; statusHistory: string | null }[]>;
+  findStep(
+    stepId: string
+  ): Promise<{ jobOrderItemId: string; statusHistory: string | null } | null>;
+  setStepStatusHistory(stepId: string, statusHistory: string): Promise<void>;
   findAttachment(
     attachmentId: string
   ): Promise<{
@@ -918,6 +926,28 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
       where: { jobOrderItem: { jobOrderId } },
       orderBy: [{ jobOrderItemId: "asc" }, { sortOrder: "asc" }],
       select: { jobOrderItemId: true, name: true, sortOrder: true, doneAt: true },
+    });
+  }
+
+  async listStepHistories(jobOrderItemId: string) {
+    return prisma.jobOrderItemStep.findMany({
+      where: { jobOrderItemId },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, statusHistory: true },
+    });
+  }
+
+  async findStep(stepId: string) {
+    return prisma.jobOrderItemStep.findUnique({
+      where: { id: stepId },
+      select: { jobOrderItemId: true, statusHistory: true },
+    });
+  }
+
+  async setStepStatusHistory(stepId: string, statusHistory: string): Promise<void> {
+    await prisma.jobOrderItemStep.update({
+      where: { id: stepId },
+      data: { statusHistory },
     });
   }
 
