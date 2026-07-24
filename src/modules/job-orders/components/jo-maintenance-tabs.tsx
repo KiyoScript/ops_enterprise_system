@@ -4,9 +4,10 @@ import { useQueryState } from "nuqs";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LookupManager } from "@/modules/shared/components/lookup-manager";
 import { EmployeeManager } from "@/modules/shared/components/employee-manager";
-import { ProductionWorkflowsCard } from "./production-workflows-card";
+import { GlobalWorkflowManager } from "./global-workflow-manager";
 import type { LookupDto } from "@/modules/shared/schemas/lookup";
 import type { EmployeeDto } from "@/modules/shared/schemas/employee";
+import type { GlobalStepDto } from "../schemas/production-workflow";
 
 /** JO Maintenance as one-section-per-tab (ruling 2026-07-17): each reference
  *  list gets its own tab instead of stacking every card on one long page.
@@ -15,10 +16,12 @@ export function JoMaintenanceTabs({
   statuses,
   categories,
   employees,
+  globalSteps,
 }: {
   statuses: LookupDto[];
   categories: LookupDto[];
   employees: EmployeeDto[];
+  globalSteps: GlobalStepDto[];
 }) {
   const [tab, setTab] = useQueryState("tab", { defaultValue: "statuses" });
 
@@ -27,7 +30,7 @@ export function JoMaintenanceTabs({
       <TabsList>
         <TabsTrigger value="statuses">Production statuses</TabsTrigger>
         <TabsTrigger value="categories">Service categories</TabsTrigger>
-        <TabsTrigger value="workflows">Production workflows</TabsTrigger>
+        <TabsTrigger value="workflows">Production workflow</TabsTrigger>
         <TabsTrigger value="employees">Employees</TabsTrigger>
       </TabsList>
 
@@ -55,7 +58,7 @@ export function JoMaintenanceTabs({
       </TabsContent>
 
       <TabsContent value="workflows">
-        <ProductionWorkflowsCard />
+        <GlobalWorkflowManager items={globalSteps} />
       </TabsContent>
 
       <TabsContent value="employees">

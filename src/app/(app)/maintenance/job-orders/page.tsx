@@ -4,6 +4,7 @@ import { requireActor } from "@/lib/authz";
 import { defineAbilityFor } from "@/lib/ability";
 import { getLookupService } from "@/modules/shared/services/lookup-service";
 import { getEmployeeService } from "@/modules/shared/services/employee-service";
+import { getProductionWorkflowService } from "@/modules/job-orders/services/production-workflow-service";
 import { PageHeader } from "@/components/page-header";
 import { JoMaintenanceTabs } from "@/modules/job-orders/components/jo-maintenance-tabs";
 
@@ -16,10 +17,11 @@ export default async function JoMaintenancePage() {
   }
 
   const lookups = getLookupService();
-  const [statuses, categories, employees] = await Promise.all([
+  const [statuses, categories, employees, globalSteps] = await Promise.all([
     lookups.list(actor, "JO_STATUS", true),
     lookups.list(actor, "JO_CATEGORY", true),
     getEmployeeService().list(actor, true),
+    getProductionWorkflowService().list(actor, true),
   ]);
 
   return (
@@ -32,6 +34,7 @@ export default async function JoMaintenancePage() {
         statuses={statuses}
         categories={categories}
         employees={employees}
+        globalSteps={globalSteps}
       />
     </>
   );
