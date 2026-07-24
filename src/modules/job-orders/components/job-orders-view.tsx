@@ -187,7 +187,7 @@ export function JobOrdersView({
                       <div className="grid gap-0.5">
                         <span className="font-medium">{row.customerName}</span>
                         <span className="whitespace-pre-line text-muted-foreground">
-                          {row.description}
+                          {row.jobDescription}
                         </span>
                         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span>QTY: {row.qty}</span>

@@ -33,6 +33,13 @@ const CUSTOMER_REFS = {
 async function main() {
   const result = await prisma.$transaction(
     async (tx) => {
+      // Clear records that reference the demo JOs and would otherwise block
+      // their deletion (created by hand while testing: DR issuance, a sale).
+      const demoJoFilter = { jobOrder: { joNumber: { in: demoJoNumbers } } };
+      await tx.auditEntry.deleteMany({ where: { sale: demoJoFilter } });
+      await tx.sale.deleteMany({ where: demoJoFilter });
+      await tx.deliveryReceipt.deleteMany({ where: demoJoFilter });
+
       // Job orders + quotations first (cascade their items) so the seed
       // customers are left with nothing pointing at them.
       const jobOrders = await tx.jobOrder.deleteMany({

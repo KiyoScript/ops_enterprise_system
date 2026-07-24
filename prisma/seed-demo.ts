@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaClient, type Prisma } from "../src/generated/prisma/client";
 import { JobOrderStatus, QuotationStatus, QuotationType, TaxType } from "../src/generated/prisma/enums";
 import {
   QUOTE_YYMM,
@@ -155,6 +155,7 @@ async function main() {
       lfpWidth: it.lfpWidth ?? null,
       lfpHeight: it.lfpHeight ?? null,
       lfpUnit: it.lfpUnit ?? null,
+      specs: (it.specs ?? undefined) as Prisma.InputJsonValue | undefined,
     }));
     const subtotal = round2(lines.reduce((s, l) => s + l.lineTotal, 0));
     const decided =

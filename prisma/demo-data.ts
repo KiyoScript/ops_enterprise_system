@@ -172,6 +172,7 @@ export interface JoLine {
   description: string;
   qty: number;
   unitPrice: number;
+  specs?: Record<string, unknown>; // quote-line specs → drives composed Job Description
   productionStatus?: string;
   department?: string;
   category?: string;
@@ -207,8 +208,8 @@ export const demoJos: DemoJo[] = [
       {
         product: "Tarpaulin",
         description: "Tarpaulin 4×8 ft — grand opening banner",
-        qty: 32,
-        unitPrice: 50,
+        qty: 2,
+        unitPrice: 1600, // 32 sqft/pc × P50/sqft
         productionStatus: "Ongoing - Printing",
         department: "Printing",
         category: "Large Format",
@@ -218,6 +219,17 @@ export const demoJos: DemoJo[] = [
         lfpWidth: "4",
         lfpHeight: "8",
         lfpUnit: "ft",
+        specs: {
+          calculator: "tarpaulin",
+          width: 4,
+          height: 8,
+          unit: "ft",
+          sqftPerPc: 32,
+          ratePerSqft: 50,
+          eyelet: "All corners",
+          rush: false,
+          design: false,
+        },
       },
     ],
   },
@@ -287,6 +299,14 @@ export const demoJos: DemoJo[] = [
         department: "Graphics",
         category: "Souvenirs",
         deadlineDays: 9,
+        specs: {
+          calculator: "generic",
+          product: "Mug",
+          variant: "White Mug",
+          unit: "pc",
+          area: null,
+          addons: ["Full wrap print"],
+        },
       },
     ],
   },

@@ -26,7 +26,11 @@ const LIGHT = rgb(0.82, 0.82, 0.82);
 const CONTACT_LINE =
   "If you have any questions, please contact Michelle Ca-ang, 0963-1220016, ormocprintshoppe@gmail.com";
 const COMPANY_EMAIL = "ormocprintshoppe@gmail.com";
-const PREPARED_LABEL = "Prepared by";
+const PREPARED_LABEL = "Prepared by"; // the JOB DETAILS box (who encoded the JO)
+// Owner / proprietor shown in the "Reviewed and Approved by" block.
+// TODO(settings): make the name + signature configurable in Company Profile
+// settings — these are the current defaults.
+const OWNER_NAME = "Joel O. Ngo";
 
 // StandardFonts are WinAnsi — no ₱ glyph; "P" prefix is the PH convention.
 const money = (value: string | number): string => {
@@ -56,6 +60,18 @@ async function loadLogo(): Promise<Uint8Array | null> {
     logoCache = null;
   }
   return logoCache;
+}
+
+// Proprietor's handwritten signature, stamped over the approval line. Read
+// fresh each render (NOT cached) so a new upload in Settings prints right away.
+async function loadSignature(): Promise<Uint8Array | null> {
+  try {
+    return new Uint8Array(
+      await readFile(path.join(process.cwd(), "public", "jon-signature.png"))
+    );
+  } catch {
+    return null;
+  }
 }
 
 export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
@@ -276,31 +292,44 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   };
 
   jo.items.forEach((item, index) => {
-    const titleLines = wrap(item.description, bold, 8.5, col.qty - col.desc - 10);
+    // Vertical layout — one attribute per line — so the composed description
+    // (service · size · qty · price breakdown, see job-description.ts) never
+    // runs together. First part (service) is the bold title; the rest stack
+    // beneath it. The extras line holds metadata it doesn't carry (line id,
+    // category, status, due date).
+    const parts = item.jobDescription.split(" · ");
+    const service = parts[0] ?? "";
+    const restParts = parts.slice(1);
     const extras: string[] = [];
     if (item.lineItemId) extras.push(item.lineItemId);
     if (item.category) extras.push(item.category);
-    if (item.isLFP && item.lfpWidth && item.lfpHeight) {
-      extras.push(`LFP ${item.lfpWidth} x ${item.lfpHeight} ${item.lfpUnit ?? ""}`.trim());
-    }
     if (item.isRush) extras.push("RUSH");
     if (item.productionStatus) extras.push(item.productionStatus);
     if (item.deadline) extras.push(`Due ${dayStr(item.deadline)}`);
-    const detailLines = extras.length
-      ? wrap(extras.join("  ·  "), font, 7, col.qty - col.desc - 10)
-      : [];
-    const rowH = Math.max(titleLines.length * 10 + detailLines.length * 8.5 + 12, 24);
+
+    const descW = col.qty - col.desc - 10;
+    const titleLines = wrap(service, bold, 8.5, descW);
+    const attrLines = restParts.flatMap((p) => wrap(p, font, 8, descW));
+    const detailLines = extras.length ? wrap(extras.join("  ·  "), font, 7, descW) : [];
+    const rowH = Math.max(
+      titleLines.length * 10 + attrLines.length * 9.5 + detailLines.length * 8.5 + 12,
+      24
+    );
     const top = y;
     let ty = y - 12;
-    text(String(index + 1), col.no + 10, ty, 8.5);
     for (const line of titleLines) {
       text(line, col.desc + 4, ty, 8.5, bold);
       ty -= 10;
     }
+    for (const line of attrLines) {
+      text(line, col.desc + 4, ty, 8, font, rgb(0.2, 0.2, 0.2));
+      ty -= 9.5;
+    }
     for (const line of detailLines) {
-      text(line, col.desc + 4, ty, 7, font, rgb(0.3, 0.3, 0.3));
+      text(line, col.desc + 4, ty, 7, font, rgb(0.42, 0.42, 0.42));
       ty -= 8.5;
     }
+    text(String(index + 1), col.no + 10, top - 12, 8.5);
     text(String(item.qty), col.qty + 10, top - 12, 8.5);
     rightText(money(item.unitPrice), col.amount - 6, top - 12, 8.5);
     rightText(money(item.lineTotal), col.end - 6, top - 12, 8.5, bold);
@@ -324,11 +353,19 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   rightText(money(jo.total), col.end - 6, y + 5, 9, bold, rgb(1, 1, 1));
   y -= 30;
 
-  // ——— prepared-by (left) + customer approval box (right) ———
-  text(`${PREPARED_LABEL}:`, M, y, 8, italic, GRAY);
+  // ——— reviewed & approved by (left) + customer approval box (right) ———
+  text("Reviewed and Approved by:", M, y, 8, italic, GRAY);
+  const sigBytes = await loadSignature();
+  if (sigBytes) {
+    const isPng = sigBytes[1] === 0x50 && sigBytes[2] === 0x4e;
+    const sig = isPng ? await doc.embedPng(sigBytes) : await doc.embedJpg(sigBytes);
+    const sigH = 40;
+    const sigW = (sig.width / sig.height) * sigH;
+    page.drawImage(sig, { x: M + (170 - sigW) / 2, y: y - 32, width: sigW, height: sigH });
+  }
   page.drawLine({ start: { x: M, y: y - 34 }, end: { x: M + 170, y: y - 34 }, thickness: 0.8, color: INK });
-  text(jo.createdByName, M, y - 45, 10, bold);
-  text("Ormoc Printshoppe", M, y - 56, 7.5, font, GRAY);
+  text(OWNER_NAME, M, y - 45, 10, bold);
+  text("Proprietor", M, y - 56, 7.5, font, GRAY);
 
   const accW = 250;
   const accX = PAGE_W - M - accW;

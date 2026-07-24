@@ -190,6 +190,13 @@ export type ImportSource = z.infer<typeof importRequestInput>["source"];
 export type JobOrderItemDto = {
   id: string;
   description: string;
+  // Live "Job Description" composed from the item's structured fields
+  // (service · size · qty · price breakdown) — stays in sync with qty. Falls
+  // back to `description` when the item has no usable specs. See job-description.ts.
+  jobDescription: string;
+  // Raw pieces the client re-composes the description from live (edit dialog):
+  service: string | null; // product/service name
+  specs: Record<string, unknown> | null; // quote-line specs
   fromQuote: boolean; // description is locked (copied from an approved quote)
   qty: number;
   unitPrice: string;

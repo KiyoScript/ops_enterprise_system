@@ -42,6 +42,7 @@ import {
   isDoneStatus,
   isWaitingPickupStatus,
 } from "./production-status";
+import { composeJobDescription } from "./job-description";
 
 const DAY_MS = 86_400_000;
 
@@ -956,6 +957,19 @@ function mapItem(item: JobOrderItemRecord): JobOrderItemDto {
   return {
     id: item.id,
     description: item.description,
+    jobDescription: composeJobDescription({
+      productName: item.product?.name ?? null,
+      specs: item.specs,
+      qty: item.qty,
+      unitPrice: item.unitPrice.toString(),
+      lineTotal: item.lineTotal.toString(),
+      fallback: item.description,
+    }),
+    service: item.product?.name ?? null,
+    specs:
+      item.specs && typeof item.specs === "object" && !Array.isArray(item.specs)
+        ? (item.specs as Record<string, unknown>)
+        : null,
     fromQuote: item.fromQuote,
     qty: item.qty,
     unitPrice: item.unitPrice.toString(),

@@ -55,7 +55,10 @@ const detailSelect = {
     },
   },
   createdBy: { select: { name: true } },
-  items: { orderBy: { sortOrder: "asc" as const } },
+  items: {
+    orderBy: { sortOrder: "asc" as const },
+    include: { product: { select: { name: true } } },
+  },
   attachments: {
     select: {
       id: true,
@@ -70,6 +73,7 @@ const detailSelect = {
 } satisfies Prisma.JobOrderSelect;
 
 const itemBoardInclude = {
+  product: { select: { name: true } },
   jobOrder: {
     select: {
       id: true,
@@ -901,6 +905,7 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
   ): Promise<JobOrderItemRecord | null> {
     return (tx ?? prisma).jobOrderItem.findFirst({
       where: { id: itemId, jobOrderId },
+      include: { product: { select: { name: true } } },
     });
   }
 

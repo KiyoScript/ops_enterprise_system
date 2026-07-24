@@ -31,6 +31,7 @@ import {
   isDoneStatus,
   PRODUCTION_STATUS_SUGGESTIONS,
 } from "../services/production-status";
+import { composeJobDescription } from "../services/job-description";
 import {
   useInvalidateJobOrders,
   useJoDeadlineHistory,
@@ -82,8 +83,37 @@ export function ItemEditDialog({
     !!row && (watchedStatus ?? "") !== (row.productionStatus ?? "");
   const willArchive = statusChanged && isDoneStatus(watchedStatus);
 
+  // Quote-derived items carry a fixed unit price: the amount is qty × unit
+  // price (not hand-editable), and the job description recomposes off the live
+  // quantity. Manually-encoded items keep the free amount/description fields.
+  const watchedQty = useWatch({ control: form.control, name: "qty" });
+  const unitPrice = row ? parseFloat(row.unitPrice) || 0 : 0;
+  const liveQty = Math.max(parseInt(watchedQty ?? "", 10) || 0, 0);
+  const liveAmount = Math.round(liveQty * unitPrice * 100) / 100;
+  const liveJobDescription = row
+    ? composeJobDescription({
+        productName: row.service,
+        specs: row.specs,
+        qty: liveQty,
+        unitPrice: row.unitPrice,
+        lineTotal: String(liveAmount),
+        fallback: row.description,
+      })
+    : "";
+  const pesoFmt = (n: number) =>
+    n.toLocaleString("en-PH", { minimumFractionDigits: 2 });
+
   const onSubmit = form.handleSubmit(async (values) => {
-    const result = await updateItemAction(values);
+    // Quote-derived amount is always qty × unit price (the field is read-only).
+    const payload = row?.fromQuote
+      ? {
+          ...values,
+          amount: (
+            Math.round(Math.max(parseInt(values.qty, 10) || 0, 0) * unitPrice * 100) / 100
+          ).toFixed(2),
+        }
+      : values;
+    const result = await updateItemAction(payload);
     if (!result.ok) {
       toast.error(result.error);
       return;
@@ -106,21 +136,30 @@ export function ItemEditDialog({
         <form onSubmit={onSubmit} className="grid gap-4" noValidate>
           <div className="grid gap-2">
             <Label htmlFor="ie-desc">Job description</Label>
-            <Textarea
-              id="ie-desc"
-              rows={2}
-              readOnly={row?.fromQuote}
-              aria-invalid={!!errors.description}
-              className={row?.fromQuote ? "bg-muted/50 text-muted-foreground" : undefined}
-              {...form.register("description")}
-            />
             {row?.fromQuote ? (
-              <p className="text-xs text-muted-foreground">
-                Locked — copied from the approved quotation. Use Notes for
-                additional requirements.
-              </p>
+              <>
+                <Textarea
+                  id="ie-desc"
+                  rows={2}
+                  readOnly
+                  value={liveJobDescription}
+                  className="bg-muted/50 text-muted-foreground"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Composed from the approved quotation — updates with quantity.
+                  Use Notes for additional requirements.
+                </p>
+              </>
             ) : (
-              <FieldError message={errors.description?.message} />
+              <>
+                <Textarea
+                  id="ie-desc"
+                  rows={2}
+                  aria-invalid={!!errors.description}
+                  {...form.register("description")}
+                />
+                <FieldError message={errors.description?.message} />
+              </>
             )}
           </div>
 
@@ -135,19 +174,34 @@ export function ItemEditDialog({
               <FieldError message={errors.qty?.message} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="ie-amount">JO Amount *</Label>
+              <Label htmlFor="ie-amount">JO Amount{row?.fromQuote ? "" : " *"}</Label>
               <div className="relative">
                 <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
                   ₱
                 </span>
-                <Input
-                  id="ie-amount"
-                  className="pl-7"
-                  aria-invalid={!!errors.amount}
-                  {...numericField(form.register("amount"), "decimal")}
-                />
+                {row?.fromQuote ? (
+                  <Input
+                    id="ie-amount"
+                    className="pl-7 bg-muted/50 text-muted-foreground"
+                    readOnly
+                    value={pesoFmt(liveAmount)}
+                  />
+                ) : (
+                  <Input
+                    id="ie-amount"
+                    className="pl-7"
+                    aria-invalid={!!errors.amount}
+                    {...numericField(form.register("amount"), "decimal")}
+                  />
+                )}
               </div>
-              <FieldError message={errors.amount?.message} />
+              {row?.fromQuote ? (
+                <p className="text-xs text-muted-foreground">
+                  Auto: {liveQty} × ₱{pesoFmt(unitPrice)}
+                </p>
+              ) : (
+                <FieldError message={errors.amount?.message} />
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="ie-deadline">Deadline</Label>

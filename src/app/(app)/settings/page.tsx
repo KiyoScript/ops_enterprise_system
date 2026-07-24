@@ -5,6 +5,7 @@ import { defineAbilityFor } from "@/lib/ability";
 import { getModuleFlagService } from "@/modules/shared/services/module-flag-service";
 import { PageHeader } from "@/components/page-header";
 import { ModuleFlagsManager } from "@/modules/shared/components/module-flags-manager";
+import { SignatureUpload } from "@/modules/shared/components/signature-upload";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -23,7 +24,10 @@ export default async function SettingsPage() {
         title="Settings"
         description="System configuration. Users, roles, and booklet maintenance land here in later phases."
       />
-      <ModuleFlagsManager modules={modules} />
+      <div className="grid gap-6">
+        <ModuleFlagsManager modules={modules} />
+        <SignatureUpload />
+      </div>
     </>
   );
 }
