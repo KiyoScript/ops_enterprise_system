@@ -173,6 +173,7 @@ export interface JoLine {
   qty: number;
   unitPrice: number;
   specs?: Record<string, unknown>; // quote-line specs → drives composed Job Description
+  steps?: string[]; // production-workflow step names → shown in the Production PDF
   productionStatus?: string;
   department?: string;
   category?: string;
@@ -230,6 +231,7 @@ export const demoJos: DemoJo[] = [
           rush: false,
           design: false,
         },
+        steps: ["Layout / Graphics", "Client Approval", "Printing", "Eyelet & Trim", "Quality Check"],
       },
     ],
   },

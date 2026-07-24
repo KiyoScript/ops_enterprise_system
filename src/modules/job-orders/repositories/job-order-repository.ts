@@ -375,6 +375,10 @@ export interface IJobOrderRepository {
     }[],
     tx?: DbTx
   ): Promise<void>;
+  /** Every production step of a JO's items (for the production printable). */
+  listItemStepsForJob(jobOrderId: string): Promise<
+    { jobOrderItemId: string; name: string; sortOrder: number; doneAt: Date | null }[]
+  >;
   findAttachment(
     attachmentId: string
   ): Promise<{
@@ -906,6 +910,14 @@ export class PrismaJobOrderRepository implements IJobOrderRepository {
     return (tx ?? prisma).jobOrderItem.findFirst({
       where: { id: itemId, jobOrderId },
       include: { product: { select: { name: true } } },
+    });
+  }
+
+  async listItemStepsForJob(jobOrderId: string) {
+    return prisma.jobOrderItemStep.findMany({
+      where: { jobOrderItem: { jobOrderId } },
+      orderBy: [{ jobOrderItemId: "asc" }, { sortOrder: "asc" }],
+      select: { jobOrderItemId: true, name: true, sortOrder: true, doneAt: true },
     });
   }
 

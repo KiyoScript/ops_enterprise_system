@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileTextIcon, ReceiptTextIcon } from "lucide-react";
+import { ClipboardListIcon, FileTextIcon, ReceiptTextIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -74,6 +74,22 @@ export function JoEditDialog({
                   }
                 >
                   <FileTextIcon /> PDF
+                </Button>
+              )}
+              {jo && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={
+                    <a
+                      href={`/api/job-orders/${jo.id}/production-pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    />
+                  }
+                >
+                  <ClipboardListIcon /> Production
                 </Button>
               )}
               {jo && canDelete && (

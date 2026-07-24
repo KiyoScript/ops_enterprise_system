@@ -156,6 +156,9 @@ async function main() {
       lfpHeight: it.lfpHeight ?? null,
       lfpUnit: it.lfpUnit ?? null,
       specs: (it.specs ?? undefined) as Prisma.InputJsonValue | undefined,
+      steps: it.steps
+        ? { create: it.steps.map((name, s) => ({ name, sortOrder: s })) }
+        : undefined,
     }));
     const subtotal = round2(lines.reduce((s, l) => s + l.lineTotal, 0));
     const decided =

@@ -169,27 +169,10 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   hline(y, DARK);
   y -= 14;
 
-  // ——— approval banner / stamp ———
-  if (!jo.isApprovedByCustomer) {
-    page.drawRectangle({
-      x: M,
-      y: y - 6,
-      width: PAGE_W - M * 2,
-      height: 18,
-      color: rgb(1, 0.95, 0.78),
-      borderColor: rgb(0.85, 0.65, 0.13),
-      borderWidth: 0.8,
-    });
-    const banner = "THIS IS FOR APPROVAL";
-    page.drawText(banner, {
-      x: (PAGE_W - bold.widthOfTextAtSize(banner, 10)) / 2,
-      y: y - 1,
-      size: 10,
-      font: bold,
-      color: rgb(0.55, 0.4, 0),
-    });
-    y -= 26;
-  } else {
+  // ——— approval stamp (only once the customer has approved) ———
+  // The "THIS IS FOR APPROVAL" banner was removed — the Customer Approval box
+  // at the bottom already carries that intent.
+  if (jo.isApprovedByCustomer) {
     const stamp = `APPROVED BY CUSTOMER — ${dateStr(jo.customerApprovedAt)}`;
     text(stamp, M, y, 9, bold, rgb(0.05, 0.5, 0.3));
     y -= 20;
@@ -359,9 +342,11 @@ export async function renderJoPdf(jo: JobOrderDetailDto): Promise<Uint8Array> {
   if (sigBytes) {
     const isPng = sigBytes[1] === 0x50 && sigBytes[2] === 0x4e;
     const sig = isPng ? await doc.embedPng(sigBytes) : await doc.embedJpg(sigBytes);
-    const sigH = 40;
+    // Sit the signature ON the line (bottom near y-33), below the label —
+    // not floating up over "Reviewed and Approved by:".
+    const sigH = 26;
     const sigW = (sig.width / sig.height) * sigH;
-    page.drawImage(sig, { x: M + (170 - sigW) / 2, y: y - 32, width: sigW, height: sigH });
+    page.drawImage(sig, { x: M + (170 - sigW) / 2, y: y - 33, width: sigW, height: sigH });
   }
   page.drawLine({ start: { x: M, y: y - 34 }, end: { x: M + 170, y: y - 34 }, thickness: 0.8, color: INK });
   text(OWNER_NAME, M, y - 45, 10, bold);

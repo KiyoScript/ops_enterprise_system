@@ -35,6 +35,7 @@ import type {
   JobOrderListPageDto,
   JobOrderListRowDto,
   JobOrderUpdateInput,
+  ProductionStepLine,
 } from "../schemas/job-order";
 import {
   appendHistory,
@@ -341,6 +342,23 @@ export class JobOrderService {
     const detail = await this.jobOrders.findDetail(id);
     if (!detail) throw new NotFoundError("Job order not found.");
     return mapDetail(detail);
+  }
+
+  /** JO detail plus each item's production-step checklist — for the internal
+   *  production printable (separate from the customer-approval PDF). */
+  async getProductionData(
+    _actor: Actor,
+    id: string
+  ): Promise<{ jo: JobOrderDetailDto; stepsByItem: Record<string, ProductionStepLine[]> }> {
+    const detail = await this.jobOrders.findDetail(id);
+    if (!detail) throw new NotFoundError("Job order not found.");
+    const jo = mapDetail(detail);
+    const steps = await this.jobOrders.listItemStepsForJob(id);
+    const stepsByItem: Record<string, ProductionStepLine[]> = {};
+    for (const s of steps) {
+      (stepsByItem[s.jobOrderItemId] ??= []).push({ name: s.name, done: s.doneAt !== null });
+    }
+    return { jo, stepsByItem };
   }
 
   async create(
